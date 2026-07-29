@@ -106,6 +106,8 @@ DEFAULT_AUTH_SETTINGS: dict[str, Any] = {
     "token_expire_hours": 24,
     "cookie_secure": False,
     "private_login_hosts": [],
+    "sso_secret": "",
+    "sso_grant_template": "",
 }
 
 DEFAULT_INTEGRATIONS_SETTINGS: dict[str, Any] = {
@@ -963,6 +965,16 @@ class RuntimeSettingsService:
             payload["cookie_secure"] = value
         if value := self._process_env_value("AUTH_PRIVATE_LOGIN_HOSTS"):
             payload["private_login_hosts"] = value
+        if value := (
+            self._process_env_value("AUTH_SSO_SECRET")
+            or self._process_env_value("DEEPTUTOR_SSO_SECRET")
+        ):
+            payload["sso_secret"] = value
+        if value := (
+            self._process_env_value("AUTH_SSO_GRANT_TEMPLATE")
+            or self._process_env_value("DEEPTUTOR_SSO_GRANT_TEMPLATE")
+        ):
+            payload["sso_grant_template"] = value
         return self._normalize_auth(payload)
 
     def _apply_integrations_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -1442,6 +1454,8 @@ class RuntimeSettingsService:
             "token_expire_hours": max(1, _coerce_int(settings.get("token_expire_hours"), 24)),
             "cookie_secure": _coerce_bool(settings.get("cookie_secure"), False),
             "private_login_hosts": _host_list(settings.get("private_login_hosts")),
+            "sso_secret": _string(settings.get("sso_secret")),
+            "sso_grant_template": _string(settings.get("sso_grant_template")),
         }
 
     def _normalize_integrations(self, settings: dict[str, Any]) -> dict[str, Any]:
