@@ -89,7 +89,7 @@ LABELS: dict[str, dict[str, str]] = {
         "init.review_ports_value": "backend {backend}, frontend {frontend}",
         "init.confirm_save": "Save these settings?",
         "init.saved": "Settings saved. You can edit them later in the Web Settings page or data/user/settings/.",
-        "init.next_step": "Run `deeptutor start` to launch DeepTutor.",
+        "init.next_step": "Run `deeptutor start` to launch Encore.",
         "init.choice": "Choice",
         "init.choice_invalid": "Invalid choice. Try again.",
         # start (launcher)
@@ -100,9 +100,9 @@ LABELS: dict[str, dict[str, str]] = {
         "start.workspace": "Workspace",
         "start.frontend_runtime": "Frontend runtime",
         "start.press_ctrl_c": "Press Ctrl+C to stop.",
-        "start.detached_started": "DeepTutor is starting in the background (launcher PID {pid}).",
+        "start.detached_started": "Encore is starting in the background (launcher PID {pid}).",
         "start.detached_already_running": (
-            "A detached DeepTutor launcher is already running (PID {pid}). Log: {log}"
+            "A detached Encore launcher is already running (PID {pid}). Log: {log}"
         ),
         "start.detached_log": "Log: {path}",
         "start.detached_stop_hint": 'Stop it with `deeptutor stop --home "{home}"`.',
@@ -122,9 +122,9 @@ LABELS: dict[str, dict[str, str]] = {
         "start.received_signal": "Received {signal}; shutting down ...",
         "start.stopping": "Stopping {name} (PID {pid})",
         "start.exited": "{name} exited with code {code}",
-        "stop.not_running": "No detached DeepTutor launcher is running.",
+        "stop.not_running": "No detached Encore launcher is running.",
         "stop.requested": "Requested a graceful stop from launcher PID {pid}.",
-        "stop.complete": "DeepTutor stopped.",
+        "stop.complete": "Encore stopped.",
         "stop.timeout": "Launcher PID {pid} did not stop in time. Check {log}.",
         "start.not_ready": (
             "{name} did not become ready within {timeout}s. "
@@ -132,7 +132,7 @@ LABELS: dict[str, dict[str, str]] = {
             "set {env} to a larger number of seconds."
         ),
         "start.port_in_use": (
-            "DeepTutor cannot start because port(s) already in use: {ports}. "
+            "Encore cannot start because port(s) already in use: {ports}. "
             "Stop the existing process or change data/user/settings/system.json."
         ),
         "start.port_conflict_title": "Port conflict detected:",
@@ -213,7 +213,7 @@ LABELS: dict[str, dict[str, str]] = {
         "init.review_ports_value": "后端 {backend},前端 {frontend}",
         "init.confirm_save": "确认保存以上配置?",
         "init.saved": "配置已保存。后续可在 Web 设置页或 data/user/settings/ 中修改。",
-        "init.next_step": "运行 `deeptutor start` 启动 DeepTutor。",
+        "init.next_step": "运行 `deeptutor start` 启动 Encore。",
         "init.choice": "请选择",
         "init.choice_invalid": "无效选项,请重新输入。",
         # start (launcher)
@@ -224,9 +224,9 @@ LABELS: dict[str, dict[str, str]] = {
         "start.workspace": "工作目录",
         "start.frontend_runtime": "前端运行模式",
         "start.press_ctrl_c": "按 Ctrl+C 停止。",
-        "start.detached_started": "DeepTutor 正在后台启动（launcher PID {pid}）。",
+        "start.detached_started": "Encore 正在后台启动（launcher PID {pid}）。",
         "start.detached_already_running": (
-            "已有后台 DeepTutor launcher 正在运行（PID {pid}）。日志：{log}"
+            "已有后台 Encore launcher 正在运行（PID {pid}）。日志：{log}"
         ),
         "start.detached_log": "日志：{path}",
         "start.detached_stop_hint": '运行 `deeptutor stop --home "{home}"` 停止。',
@@ -244,9 +244,9 @@ LABELS: dict[str, dict[str, str]] = {
         "start.received_signal": "收到 {signal} 信号,正在关闭 ...",
         "start.stopping": "正在停止 {name} (PID {pid})",
         "start.exited": "{name} 已退出 (退出码 {code})",
-        "stop.not_running": "当前没有后台 DeepTutor launcher 在运行。",
+        "stop.not_running": "当前没有后台 Encore launcher 在运行。",
         "stop.requested": "已请求 launcher PID {pid} 正常停止。",
-        "stop.complete": "DeepTutor 已停止。",
+        "stop.complete": "Encore 已停止。",
         "stop.timeout": "launcher PID {pid} 未能及时停止，请检查 {log}。",
         "start.not_ready": (
             "{name} 在 {timeout} 秒内未就绪。"
@@ -254,7 +254,7 @@ LABELS: dict[str, dict[str, str]] = {
             "可将 {env} 设为更大的秒数。"
         ),
         "start.port_in_use": (
-            "无法启动 DeepTutor,端口已被占用: {ports}。"
+            "无法启动 Encore,端口已被占用: {ports}。"
             "请先停止占用进程,或修改 data/user/settings/system.json 中的端口设置。"
         ),
         "start.port_conflict_title": "检测到端口被占用:",
@@ -334,7 +334,7 @@ LABELS: dict[str, dict[str, str]] = {
         "init.review_ports_value": "Backend {backend}, Frontend {frontend}",
         "init.confirm_save": "Diese Einstellungen speichern?",
         "init.saved": "Einstellungen gespeichert. Du kannst sie später in den Web-Einstellungen oder unter data/user/settings/ ändern.",
-        "init.next_step": "Starte DeepTutor mit `deeptutor start`.",
+        "init.next_step": "Starte Encore mit `deeptutor start`.",
         "init.choice": "Auswahl",
         "init.choice_invalid": "Ungültige Auswahl. Versuch es noch einmal.",
         "start.mode": "Backend und Frontend werden gestartet",
@@ -344,8 +344,8 @@ LABELS: dict[str, dict[str, str]] = {
         "start.workspace": "Workspace",
         "start.frontend_runtime": "Frontend-Laufzeit",
         "start.press_ctrl_c": "Zum Beenden Strg+C drücken.",
-        "start.detached_started": "DeepTutor startet im Hintergrund (Launcher-PID {pid}).",
-        "start.detached_already_running": "Ein DeepTutor-Launcher läuft bereits im Hintergrund (PID {pid}). Log: {log}",
+        "start.detached_started": "Encore startet im Hintergrund (Launcher-PID {pid}).",
+        "start.detached_already_running": "Ein Encore-Launcher läuft bereits im Hintergrund (PID {pid}). Log: {log}",
         "start.detached_log": "Log: {path}",
         "start.detached_stop_hint": 'Beenden mit `deeptutor stop --home "{home}"`.',
         "start.starting_backend": "Backend wird gestartet ...",
@@ -359,12 +359,12 @@ LABELS: dict[str, dict[str, str]] = {
         "start.received_signal": "{signal} empfangen, wird beendet ...",
         "start.stopping": "{name} wird beendet (PID {pid})",
         "start.exited": "{name} wurde mit Code {code} beendet",
-        "stop.not_running": "Es läuft kein DeepTutor-Launcher im Hintergrund.",
+        "stop.not_running": "Es läuft kein Encore-Launcher im Hintergrund.",
         "stop.requested": "Launcher-PID {pid} wurde aufgefordert, sich sauber zu beenden.",
-        "stop.complete": "DeepTutor wurde beendet.",
+        "stop.complete": "Encore wurde beendet.",
         "stop.timeout": "Launcher-PID {pid} hat sich nicht rechtzeitig beendet. Prüfe {log}.",
         "start.not_ready": "{name} war nach {timeout}s nicht bereit. Langsame Hardware oder ein Workspace mit zu migrierenden Daten kann länger brauchen; setze {env} auf eine größere Zahl an Sekunden.",
-        "start.port_in_use": "DeepTutor kann nicht starten, weil Port(s) bereits belegt sind: {ports}. Beende den laufenden Prozess oder ändere data/user/settings/system.json.",
+        "start.port_in_use": "Encore kann nicht starten, weil Port(s) bereits belegt sind: {ports}. Beende den laufenden Prozess oder ändere data/user/settings/system.json.",
         "start.port_conflict_title": "Port-Konflikt erkannt:",
         "start.port_conflict_line": "  {role}-Port {port} wird verwendet von:",
         "start.port_conflict_proc": "    PID {pid} · {command}",
@@ -442,7 +442,7 @@ LABELS: dict[str, dict[str, str]] = {
         "init.review_ports_value": "бекенд {backend}, фронтенд {frontend}",
         "init.confirm_save": "Зберегти ці налаштування?",
         "init.saved": "Налаштування збережено. Ви можете змінити їх пізніше на сторінці веб-налаштувань або в data/user/settings/.",
-        "init.next_step": "Запустіть `deeptutor start`, щоб запустити DeepTutor.",
+        "init.next_step": "Запустіть `deeptutor start`, щоб запустити Encore.",
         "init.choice": "Вибір",
         "init.choice_invalid": "Невірний вибір. Спробуйте ще раз.",
         "start.mode": "Запуск бекенду + фронтенду",
@@ -452,8 +452,8 @@ LABELS: dict[str, dict[str, str]] = {
         "start.workspace": "Робочий простір",
         "start.frontend_runtime": "Середовище виконання фронтенду",
         "start.press_ctrl_c": "Натисніть Ctrl+C для зупинки.",
-        "start.detached_started": "DeepTutor запускається у фоновому режимі (PID лаунчера {pid}).",
-        "start.detached_already_running": "Відокремлений лаунчер DeepTutor вже запущено (PID {pid}). Журнал: {log}",
+        "start.detached_started": "Encore запускається у фоновому режимі (PID лаунчера {pid}).",
+        "start.detached_already_running": "Відокремлений лаунчер Encore вже запущено (PID {pid}). Журнал: {log}",
         "start.detached_log": "Журнал: {path}",
         "start.detached_stop_hint": 'Зупиніть його командою `deeptutor stop --home "{home}"`.',
         "start.starting_backend": "Запуск бекенду ...",
@@ -467,12 +467,12 @@ LABELS: dict[str, dict[str, str]] = {
         "start.received_signal": "Отримано {signal}; завершення роботи ...",
         "start.stopping": "Зупинення {name} (PID {pid})",
         "start.exited": "{name} завершився з кодом {code}",
-        "stop.not_running": "Відкріплений лаунчер DeepTutor не запущено.",
+        "stop.not_running": "Відкріплений лаунчер Encore не запущено.",
         "stop.requested": "Запит на коректну зупинку від лаунчера PID {pid}.",
-        "stop.complete": "DeepTutor зупинено.",
+        "stop.complete": "Encore зупинено.",
         "stop.timeout": "Лаунчер PID {pid} не зупинився вчасно. Перевірте {log}.",
         "start.not_ready": "{name} не готовий протягом {timeout} с",
-        "start.port_in_use": "DeepTutor не може запуститися: порт(и) вже зайнято: {ports}. Зупиніть наявний процес або змініть data/user/settings/system.json.",
+        "start.port_in_use": "Encore не може запуститися: порт(и) вже зайнято: {ports}. Зупиніть наявний процес або змініть data/user/settings/system.json.",
         "start.port_conflict_title": "Виявлено конфлікт портів:",
         "start.port_conflict_line": "  порт {role} {port} зайнято:",
         "start.port_conflict_proc": "    PID {pid} · {command}",
@@ -549,7 +549,7 @@ def render_banner(language: str | None, *, mode_key: str | None = None) -> Panel
 
     return Panel(
         Align.left(body),
-        title="[bold bright_cyan]DeepTutor[/]",
+        title="[bold bright_cyan]Encore[/]",
         border_style="bright_cyan",
         padding=(1, 2),
     )

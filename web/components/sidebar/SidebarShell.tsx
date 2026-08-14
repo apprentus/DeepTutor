@@ -190,12 +190,12 @@ export function SidebarShell({
           <Link
             href="/"
             prefetch={false}
-            aria-label="DeepTutor"
+            aria-label="Encore"
             className="flex items-center justify-center transition-opacity duration-150 group-hover/sb:opacity-0"
           >
             <Image
               src="/logo.png"
-              alt="DeepTutor"
+              alt="Encore"
               width={22}
               height={22}
               className="h-[22px] w-[22px] rounded-md"
@@ -259,14 +259,14 @@ export function SidebarShell({
         <Link href="/" prefetch={false} className="group flex items-center gap-1.5">
           <Image
             src="/logo.png"
-            alt="DeepTutor"
+            alt="Encore"
             width={22}
             height={22}
             className="h-[22px] w-[22px] transition-transform duration-200 group-hover:scale-105"
           />
           <Image
             src="/banner.png"
-            alt="DeepTutor"
+            alt="Encore"
             width={897}
             height={236}
             priority

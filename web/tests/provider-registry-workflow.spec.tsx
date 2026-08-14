@@ -460,7 +460,7 @@ it("sends the search proxy and explains JSON rejection from a Docker loopback ad
   fireEvent.click(screen.getByRole("button", { name: "Test provider" }));
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("search.formats"));
   expect(screen.getByRole("status").textContent).toContain("HTTP 403");
-  expect(screen.getByRole("status").textContent).toContain("DeepTutor container");
+  expect(screen.getByRole("status").textContent).toContain("Encore container");
   expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).proxy).toBe("http://proxy:3128");
 });
 
@@ -472,7 +472,7 @@ it("shows an empty search result as a reachable API with an engine warning", () 
   />);
   expect(screen.getByRole("status").textContent).toContain("Provider connected");
   expect(screen.getByRole("status").textContent).toContain("enabled engines");
-  expect(screen.getByRole("status").textContent).not.toContain("DeepTutor container");
+  expect(screen.getByRole("status").textContent).not.toContain("Encore container");
 });
 
 it.each([

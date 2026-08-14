@@ -176,7 +176,7 @@ class TurnLifecycle:
         async with self._lock:
             if self._turns_blocked_for_update_locked():
                 raise RuntimeError(
-                    "DeepTutor is preparing an update; try again after it reconnects"
+                    "Encore is preparing an update; try again after it reconnects"
                 )
 
     async def _has_live_execution(self, turn_id: str) -> bool:

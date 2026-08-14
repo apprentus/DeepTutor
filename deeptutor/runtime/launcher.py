@@ -1,4 +1,4 @@
-"""Local Web launcher for the installed DeepTutor app."""
+"""Local Web launcher for the installed Encore app."""
 
 from __future__ import annotations
 
@@ -967,7 +967,7 @@ def _resolve_frontend(
     node = shutil.which("node")
     if packaged is not None:
         if not node:
-            raise SystemExit("Node.js 20+ is required to run the packaged DeepTutor Web app.")
+            raise SystemExit("Node.js 20+ is required to run the packaged Encore Web app.")
         runtime_web = _copy_packaged_web_if_needed(
             packaged,
             home=home,
@@ -1004,7 +1004,7 @@ def _resolve_frontend(
         )
 
     raise SystemExit(
-        "DeepTutor Web assets are not installed. Install the full app with `pip install -U deeptutor`, "
+        "Encore Web assets are not installed. Install the full app with `pip install -U deeptutor`, "
         "or run from a source checkout that contains `web/`."
     )
 
@@ -1291,7 +1291,7 @@ def _mark_detached_ready(
 
 
 def stop(home: str | Path | None = None, *, timeout: float = 15) -> bool:
-    """Request a graceful stop from a detached DeepTutor launcher."""
+    """Request a graceful stop from a detached Encore launcher."""
 
     runtime_home = get_runtime_home(home)
     try:
@@ -1535,7 +1535,7 @@ def start(
     common_env["PYTHONIOENCODING"] = "utf-8:replace"
     # Anchor for deeptutor.runtime.memory_probe: the backend and the frontend
     # are siblings under this process, so only the supervisor's pid identifies
-    # the tree that is "DeepTutor". Without it the probe can only measure the
+    # the tree that is "Encore". Without it the probe can only measure the
     # backend itself.
     common_env[SUPERVISOR_PID_ENV] = str(os.getpid())
     common_env[LAUNCHER_PID_ENV] = str(os.getpid())

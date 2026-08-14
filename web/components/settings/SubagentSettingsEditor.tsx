@@ -436,12 +436,12 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
         description={
           isRemote
             ? tr({
-                zh: "配置 DeepTutor 通过 HTTP 调用的远程 Hermes 网关、模型与运行参数。",
-                en: "Configure the remote Hermes gateway, model, and run parameters DeepTutor uses over HTTP.",
+                zh: "配置 Encore 通过 HTTP 调用的远程 Hermes 网关、模型与运行参数。",
+                en: "Configure the remote Hermes gateway, model, and run parameters Encore uses over HTTP.",
               })
             : tr({
-                zh: `DeepTutor 通过 consult_subagent 调用本机 ${displayName} 时使用的模型、推理强度与运行参数。设置后即覆盖 CLI 的默认值；留空表示沿用 CLI 默认。`,
-                en: `Model, reasoning effort, and run parameters DeepTutor drives the local ${displayName} with when consulting it. These override the CLI defaults; leave blank to keep the CLI's own default.`,
+                zh: `Encore 通过 consult_subagent 调用本机 ${displayName} 时使用的模型、推理强度与运行参数。设置后即覆盖 CLI 的默认值；留空表示沿用 CLI 默认。`,
+                en: `Model, reasoning effort, and run parameters Encore drives the local ${displayName} with when consulting it. These override the CLI defaults; leave blank to keep the CLI's own default.`,
               })
         }
       />
@@ -646,15 +646,15 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
           <SettingSection
             title={tr({ zh: "模型", en: "Model" })}
             description={tr({
-              zh: "DeepTutor 调用该智能体时使用的模型与推理强度。",
-              en: "The model and reasoning effort DeepTutor consults this agent with.",
+              zh: "Encore 调用该智能体时使用的模型与推理强度。",
+              en: "The model and reasoning effort Encore consults this agent with.",
             })}
           >
             <SettingRow
               title={tr({ zh: "启用", en: "Enabled" })}
               description={tr({
-                zh: "关闭后，DeepTutor 不会在对话中调用该智能体。",
-                en: "When off, DeepTutor won't consult this agent in chat.",
+                zh: "关闭后，Encore 不会在对话中调用该智能体。",
+                en: "When off, Encore won't consult this agent in chat.",
               })}
               control={
                 <Toggle
@@ -766,8 +766,8 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
               description={`${tr(
                 SYSTEM_PROMPT_HINT[kind] ?? SYSTEM_PROMPT_HINT.claude_code,
               )} ${tr({
-                zh: "留空则使用 DeepTutor 的默认委派提示。",
-                en: "Blank uses DeepTutor's default delegate instruction.",
+                zh: "留空则使用 Encore 的默认委派提示。",
+                en: "Blank uses Encore's default delegate instruction.",
               })}`}
             >
               <div className="py-4">
@@ -792,8 +792,8 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
           <SettingSection
             title={tr({ zh: "运行参数", en: "Run parameters" })}
             description={tr({
-              zh: "DeepTutor 无人值守地驱动该智能体——默认值确保它不会卡在等待确认上。",
-              en: "DeepTutor drives the agent unattended — the defaults ensure it never stalls waiting for an approval prompt.",
+              zh: "Encore 无人值守地驱动该智能体——默认值确保它不会卡在等待确认上。",
+              en: "Encore drives the agent unattended — the defaults ensure it never stalls waiting for an approval prompt.",
             })}
           >
             {features.permissionMode && (
@@ -942,8 +942,8 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
               <SettingRow
                 title={tr({ zh: "转发图片", en: "Forward images" })}
                 description={tr({
-                  zh: "允许 DeepTutor 把本轮对话中的图片附件转发给该智能体。",
-                  en: "Let DeepTutor forward image attachments from the chat turn to this agent.",
+                  zh: "允许 Encore 把本轮对话中的图片附件转发给该智能体。",
+                  en: "Let Encore forward image attachments from the chat turn to this agent.",
                 })}
                 control={
                   <Toggle
