@@ -12,3 +12,13 @@ test("legacy settings inherit the interface language when response language is m
   assert.equal(resolveResponseLanguage(null, "zh"), "zh");
   assert.equal(resolveResponseLanguage(undefined, "en"), "en");
 });
+
+test("response language accepts French even though the interface does not", () => {
+  assert.equal(resolveResponseLanguage("fr", "en"), "fr");
+  assert.equal(resolveResponseLanguage("fr", "zh"), "fr");
+});
+
+test("unknown response languages fall back to the interface language", () => {
+  assert.equal(resolveResponseLanguage("de", "zh"), "zh");
+  assert.equal(resolveResponseLanguage("nonsense", "en"), "en");
+});

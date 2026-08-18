@@ -73,6 +73,37 @@ async def test_ui_languages_are_persisted_independently(
     assert response["response_language"] == "zh"
 
 
+@pytest.mark.asyncio
+async def test_response_language_accepts_french(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The model output language is wider than the interface language: it can
+    be "fr" even though the UI itself is only translated to en/zh."""
+    from deeptutor.services.settings import interface_settings
+
+    settings_file = tmp_path / "interface.json"
+    monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
+    monkeypatch.setattr(interface_settings, "_interface_settings_file", lambda: settings_file)
+
+    response = await settings_router.update_ui_settings(
+        settings_router.UISettingsUpdate(language="en", response_language="fr")
+    )
+
+    assert response["language"] == "en"
+    assert response["response_language"] == "fr"
+    # The turn path reads through the service module — "fr" must survive it.
+    assert interface_settings.get_response_language() == "fr"
+    # The interface language stays gated to en/zh.
+    assert interface_settings.get_ui_language() == "en"
+
+
+def test_interface_language_rejects_french() -> None:
+    """No French UI translation exists yet, so the interface language stays
+    en/zh even though the response language accepts fr."""
+    with pytest.raises(Exception):
+        settings_router.UISettingsUpdate(language="fr")
+
+
 class _FakeEmbeddingAdapter:
     def __init__(self, config: dict[str, Any]):
         self.config = config
