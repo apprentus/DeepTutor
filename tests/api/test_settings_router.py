@@ -77,8 +77,7 @@ async def test_ui_languages_are_persisted_independently(
 async def test_response_language_accepts_french(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """The model output language is wider than the interface language: it can
-    be "fr" even though the UI itself is only translated to en/zh."""
+    """French model output can be selected independently of the UI language."""
     from deeptutor.services.settings import interface_settings
 
     settings_file = tmp_path / "interface.json"
@@ -93,15 +92,30 @@ async def test_response_language_accepts_french(
     assert response["response_language"] == "fr"
     # The turn path reads through the service module — "fr" must survive it.
     assert interface_settings.get_response_language() == "fr"
-    # The interface language stays gated to en/zh.
     assert interface_settings.get_ui_language() == "en"
 
 
-def test_interface_language_rejects_french() -> None:
-    """No French UI translation exists yet, so the interface language stays
-    en/zh even though the response language accepts fr."""
-    with pytest.raises(Exception):
+@pytest.mark.asyncio
+async def test_interface_language_accepts_french(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """French is a full interface language: it persists and both readers
+    return it."""
+    from deeptutor.services.settings import interface_settings
+
+    settings_file = tmp_path / "interface.json"
+    monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
+    monkeypatch.setattr(interface_settings, "_interface_settings_file", lambda: settings_file)
+
+    response = await settings_router.update_ui_settings(
         settings_router.UISettingsUpdate(language="fr")
+    )
+
+    assert response["language"] == "fr"
+    assert interface_settings.get_ui_language() == "fr"
+    # The two languages stay independent: the router persists both fields, so
+    # switching the interface does not drag the model output language along.
+    assert interface_settings.get_response_language() == "en"
 
 
 class _FakeEmbeddingAdapter:

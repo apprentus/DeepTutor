@@ -84,7 +84,7 @@ export default function AppearanceSettingsPage() {
           )}
           control={
             <div className="flex gap-0.5 rounded-lg bg-[var(--muted)] p-0.5">
-              {(["en", "zh"] as const).map((v) => (
+              {(["en", "zh", "fr"] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => updateLanguage(v)}
@@ -94,7 +94,11 @@ export default function AppearanceSettingsPage() {
                       : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                   }`}
                 >
-                  {v === "en" ? t("language.english") : t("language.chinese")}
+                  {v === "en"
+                    ? t("language.english")
+                    : v === "zh"
+                      ? t("language.chinese")
+                      : t("language.french")}
                 </button>
               ))}
             </div>
