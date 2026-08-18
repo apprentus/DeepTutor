@@ -1426,7 +1426,10 @@ export function UnifiedChatProvider({
     if (typeof window === "undefined") return;
 
     const syncLanguage = (language: string | null | undefined) => {
-      dispatch({ type: "SET_LANGUAGE", lang: normalizeLanguage(language) });
+      dispatch({
+        type: "SET_LANGUAGE",
+        lang: language === "fr" ? "fr" : normalizeLanguage(language),
+      });
     };
     const onResponseLanguage = (event: Event) => {
       const detail = (event as CustomEvent<{ language?: string }>).detail;

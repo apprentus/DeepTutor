@@ -70,8 +70,8 @@ export function normalizeLanguage(
 export function resolveResponseLanguage(
   value: string | null | undefined,
   legacyLanguage: string | null | undefined = "en",
-): AppLanguage {
-  return value === "zh" || value === "en"
+): "en" | "zh" | "fr" {
+  return value === "zh" || value === "en" || value === "fr"
     ? value
     : normalizeLanguage(legacyLanguage);
 }
@@ -115,7 +115,7 @@ export function writeStoredLanguage(language: AppLanguage): void {
   }
 }
 
-export function readStoredResponseLanguage(): AppLanguage {
+export function readStoredResponseLanguage(): "en" | "zh" | "fr" {
   if (typeof window === "undefined") return "en";
   try {
     return resolveResponseLanguage(
@@ -127,7 +127,7 @@ export function readStoredResponseLanguage(): AppLanguage {
   }
 }
 
-export function writeStoredResponseLanguage(language: AppLanguage): void {
+export function writeStoredResponseLanguage(language: "en" | "zh" | "fr"): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(RESPONSE_LANGUAGE_STORAGE_KEY, language);
