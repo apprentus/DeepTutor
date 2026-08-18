@@ -52,6 +52,14 @@ class ChatOrchestrator:
                 f"Unknown capability: {cap_name}. "
                 f"Available: {self._cap_registry.list_capabilities()}",
                 source="orchestrator",
+                metadata={"turn_terminal": True, "status": "failed"},
+            )
+            await bus.emit(
+                StreamEvent(
+                    type=StreamEventType.DONE,
+                    source="orchestrator",
+                    metadata={"status": "failed"},
+                )
             )
             await bus.close()
             async for event in bus.subscribe():
@@ -73,13 +81,38 @@ class ChatOrchestrator:
             register_bus(_turn_id, bus)
 
         async def _run() -> None:
+            status = "completed"
             try:
                 await capability.run(context, bus)
             except Exception as exc:
+                status = "failed"
                 logger.error("Capability %s failed: %s", cap_name, exc, exc_info=True)
-                await bus.error(str(exc), source=cap_name)
+                error_metadata: dict[str, Any] = {
+                    "turn_terminal": True,
+                    "status": status,
+                }
+                error_code = getattr(exc, "error_code", None)
+                if isinstance(error_code, str) and error_code:
+                    error_metadata["error_code"] = error_code
+                retryable = getattr(exc, "retryable", None)
+                if isinstance(retryable, bool):
+                    error_metadata["retryable"] = retryable
+                partial_response = getattr(exc, "partial_response", None)
+                if isinstance(partial_response, bool):
+                    error_metadata["partial_response"] = partial_response
+                await bus.error(
+                    str(exc),
+                    source=cap_name,
+                    metadata=error_metadata,
+                )
             finally:
-                await bus.emit(StreamEvent(type=StreamEventType.DONE, source=cap_name))
+                await bus.emit(
+                    StreamEvent(
+                        type=StreamEventType.DONE,
+                        source=cap_name,
+                        metadata={"status": status},
+                    )
+                )
                 await bus.close()
                 if _turn_id:
                     unregister_bus(_turn_id)

@@ -80,6 +80,14 @@ class TestCreate:
         assert body["soul_origin"] == {"type": "custom", "id": ""}
         assert body["provisioning"]["errors"] == []
 
+    def test_omitted_mcp_tools_defaults_to_deny(self, client):
+        # A create that says nothing about MCP must not inherit the deployment's
+        # configured MCP tools; ``null`` stays the deliberate opt-in to all.
+        assert _create(client).status_code == 200
+        assert client.get("/api/v1/partners/ada").json()["mcp_tools"] == []
+        assert _create(client, partner_id="bob", name="Bob", mcp_tools=None).status_code == 200
+        assert client.get("/api/v1/partners/bob").json()["mcp_tools"] is None
+
     def test_duplicate_id_conflicts(self, client):
         assert _create(client).status_code == 200
         assert _create(client).status_code == 409
@@ -143,6 +151,24 @@ class TestConfigAndSoul:
         assert "rag" in builtin_names
         assert "read_memory" not in builtin_names
         assert "write_memory" not in builtin_names
+
+    def test_tool_options_honors_global_chat_toggles(self, client):
+        # A tool the admin turned off in Settings → Chat → Tools must not
+        # appear in the partner Mind picker — the two surfaces share one pool.
+        # (``client`` already activates the ``isolated_root`` path isolation.)
+        from deeptutor.multi_user.paths import get_admin_path_service
+
+        path = get_admin_path_service().get_settings_file("interface")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"enabled_optional_tools": ["reason"]}), encoding="utf-8")
+
+        body = client.get("/api/v1/partners/tool-options").json()
+        tool_names = {t["name"] for t in body["tools"]}
+        assert tool_names == {"reason"}
+        assert "web_search" not in tool_names
+        # The auto-mounted built-ins are a separate axis, unaffected by the
+        # user-toggleable chat toggles.
+        assert "rag" in {t["name"] for t in body["builtin_tools"]}
 
     def test_avatar_roundtrip_and_validation(self, client):
         _create(client)

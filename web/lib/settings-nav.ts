@@ -16,9 +16,9 @@ import {
   Network,
   Palette,
   Paperclip,
-  Plug,
   Search,
   SlidersHorizontal,
+  Sparkles,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -172,18 +172,6 @@ const CHAT_CHILDREN: SettingsLeaf[] = [
     tile: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   },
   {
-    key: "mcp",
-    href: "/settings/mcp",
-    label: { zh: "MCP 服务器", en: "MCP servers" },
-    blurb: {
-      zh: "部署共享的外部 MCP 服务器。",
-      en: "External MCP servers shared by the deployment.",
-    },
-    icon: Plug,
-    tile: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-    adminOnly: true,
-  },
-  {
     key: "capabilities",
     href: "/settings/capabilities",
     label: { zh: "能力", en: "Capabilities" },
@@ -193,6 +181,17 @@ const CHAT_CHILDREN: SettingsLeaf[] = [
     },
     icon: SlidersHorizontal,
     tile: "bg-lime-500/10 text-lime-600 dark:text-lime-400",
+  },
+  {
+    key: "starters",
+    href: "/settings/starters",
+    label: { zh: "起始建议", en: "Starting points" },
+    blurb: {
+      zh: "主页输入框下方那三行引导的素材范围。",
+      en: "How much history shapes the three lines under the composer.",
+    },
+    icon: Sparkles,
+    tile: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
   },
   {
     key: "attachments",
@@ -324,8 +323,8 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     key: "chat",
     label: { zh: "聊天", en: "Chat" },
     blurb: {
-      zh: "工具、MCP 服务器、能力与附件",
-      en: "Tools, MCP servers, capabilities, and attachments",
+      zh: "工具、能力与附件",
+      en: "Tools, capabilities, and attachments",
     },
     icon: MessagesSquare,
     href: "/settings/chat",
@@ -383,7 +382,6 @@ const STORAGE_PATHS: Record<string, string> = {
   "/settings/document-parsing": "data/user/settings/document_parsing.json",
   "/settings/tools": "data/user/settings/interface.json",
   "/settings/attachments": "data/user/settings/system.json",
-  "/settings/mcp": "data/user/settings/mcp.json",
   "/settings/capabilities": "data/user/settings/main.yaml · agents.yaml",
   "/settings/memory": "data/user/settings/main.yaml",
   "/settings/agents/claude-code": "data/user/settings/subagent.json",

@@ -34,8 +34,12 @@ import type { SelectedRecord } from "@/lib/notebook-selection-types";
 import type { SelectedHistorySession } from "@/components/chat/HistorySessionPicker";
 import type { SelectedQuestionEntry } from "@/components/chat/QuestionBankPicker";
 import ChatComposer from "@/components/chat/home/ChatComposer";
+import type { ContextBudget } from "@/components/chat/home/ContextBudgetChip";
 import { ChatMessageList } from "@/components/chat/home/ChatMessages";
+import { TurnNavigator } from "@/components/chat/home/TurnNavigator";
 import SessionLoadingView from "@/components/chat/home/SessionLoadingView";
+import StarterSuggestions from "@/components/chat/home/StarterSuggestions";
+import MasteryPathStrip from "@/components/chat/home/MasteryPathStrip";
 // Imported eagerly so the drawer shell is always mounted off-screen —
 // clicking a chip becomes a single CSS class flip, no chunk fetch + double
 // render. The heavy renderers inside still load lazily.
@@ -67,6 +71,7 @@ import {
   readFileAsDataUrl,
 } from "@/lib/file-attachments";
 import { classifyFile, isSvgFilename } from "@/lib/doc-attachments";
+import { readChatLaunchIntent } from "@/lib/chat-launch-intent";
 import { useAttachmentLimits } from "@/lib/attachment-limits";
 import { useChatAutoScroll } from "@/hooks/useChatAutoScroll";
 import { useMeasuredHeight } from "@/hooks/useMeasuredHeight";
@@ -94,12 +99,14 @@ import {
 } from "@/lib/research-types";
 import { listKnowledgeBases } from "@/lib/knowledge-api";
 import { getSubagentSettings } from "@/lib/subagents-api";
-import { listLLMOptions, type LLMOption } from "@/lib/llm-options";
+import { useLLMOptions } from "@/hooks/useLLMOptions";
 import {
   getEnabledOptionalTools,
   invalidateEnabledOptionalToolsCache,
 } from "@/lib/tools-settings";
 import { downloadChatMarkdown } from "@/lib/chat-export";
+import { buildChatOutline } from "@/lib/chat-outline";
+import { isPlaceholderSessionTitle } from "@/lib/session-title";
 import type { SpaceMemoryFile } from "@/lib/space-items";
 import {
   selectedBooksToPayload,
@@ -304,6 +311,34 @@ function getCapability(value: string | null): CapabilityDef {
   return CAPABILITIES.find((c) => c.value === (value || "")) ?? CAPABILITIES[0];
 }
 
+/**
+ * Read the context-window measurement a finished turn attached to its
+ * `result` event. Scanned newest-first because one turn can emit several
+ * results (a consulted subagent emits its own) and only the chat loop's
+ * closing one carries the budget; older backends emit none at all, and the
+ * measurement is allowed to degrade to "absent" rather than fail a turn.
+ */
+function readContextBudget(
+  events: StreamEvent[] | undefined,
+): ContextBudget | null {
+  if (!events) return null;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const ev = events[i];
+    if (ev.type !== "result") continue;
+    const meta = ev.metadata?.metadata as Record<string, unknown> | undefined;
+    const budget = meta?.context_budget as ContextBudget | undefined;
+    if (
+      budget &&
+      typeof budget.window === "number" &&
+      typeof budget.used_tokens === "number" &&
+      Array.isArray(budget.segments)
+    ) {
+      return budget;
+    }
+  }
+  return null;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Chat page                                                         */
 /* ------------------------------------------------------------------ */
@@ -321,6 +356,7 @@ export default function ChatPage() {
     setCapability,
     setKBs,
     setLLMSelection,
+    setMasteryPathId,
     setPersonaSelection,
     sendMessage,
     cancelStreamingTurn,
@@ -331,6 +367,7 @@ export default function ChatPage() {
     switchBranch,
     newSession,
     loadSession,
+    showCachedSession,
     renameSessionTitle,
   } = useUnifiedChat();
 
@@ -348,12 +385,13 @@ export default function ChatPage() {
         : new URLSearchParams(window.location.search).get("agent");
   }
   const agentPreselectDoneRef = useRef(false);
-  const [llmOptions, setLLMOptions] = useState<LLMOption[]>([]);
-  const [activeLLMDefault, setActiveLLMDefault] = useState<LLMSelection | null>(
-    null,
-  );
-  const [llmOptionsLoading, setLLMOptionsLoading] = useState(true);
-  const [llmOptionsError, setLLMOptionsError] = useState(false);
+  const {
+    options: llmOptions,
+    activeDefault: activeLLMDefault,
+    loading: llmOptionsLoading,
+    error: llmOptionsError,
+    refresh: refreshLLMOptions,
+  } = useLLMOptions();
   const [capabilityConfigs, setCapabilityConfigs] =
     useState<CapabilityPlaygroundConfigMap>({});
   // User-toggleable tools the user has enabled in /settings/tools. This is
@@ -662,8 +700,9 @@ export default function ChatPage() {
     [state.messages],
   );
   const persistedSessionTitle = state.sessionTitle.trim();
-  const displaySessionTitle =
-    persistedSessionTitle || firstUserTitle || t("New chat");
+  const displaySessionTitle = isPlaceholderSessionTitle(persistedSessionTitle)
+    ? firstUserTitle || t("New chat")
+    : persistedSessionTitle;
   const canRenameSession = Boolean(state.sessionId);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const skipTitleCommitRef = useRef(false);
@@ -844,6 +883,7 @@ export default function ChatPage() {
     containerRef: messagesContainerRef,
     endRef: messagesEndRef,
     shouldAutoScrollRef,
+    scrollToBottom,
     handleScroll: handleMessagesScroll,
   } = useChatAutoScroll({
     hasMessages,
@@ -853,6 +893,54 @@ export default function ChatPage() {
     lastMessageContent: lastMessage?.content,
     lastEventCount: lastMessage?.events?.length,
   });
+
+  // ─── Turn navigator ───
+  // One tick per question the user asked, rendered in the transcript's
+  // left gutter (see ``TurnNavigator``). The outline is derived from the
+  // same visible-path walk the message list uses, so switching an edit
+  // branch reshapes both together.
+  const chatOutline = useMemo(
+    () => buildChatOutline(state.messages, state.selectedBranches),
+    [state.messages, state.selectedBranches],
+  );
+  /** Bring a question back on screen and mark where the user landed. */
+  const jumpToTurn = useCallback(
+    (key: string) => {
+      const container = messagesContainerRef.current;
+      const target = container?.querySelector<HTMLElement>(
+        `[data-turn-key="${key}"]`,
+      );
+      if (!container || !target) return;
+      // Release the streaming pin first: without this, a jump made while
+      // a turn is generating would be snapped straight back to the bottom
+      // by ``useChatAutoScroll``'s next content-growth pin.
+      shouldAutoScrollRef.current = false;
+      const offset =
+        target.getBoundingClientRect().top -
+        container.getBoundingClientRect().top;
+      // 56 px clears the scrollport's top fade so the bubble lands fully
+      // opaque rather than half-dissolved under the mask.
+      container.scrollTo({
+        top: container.scrollTop + offset - 56,
+        behavior: "smooth",
+      });
+      const bubble =
+        target.querySelector<HTMLElement>("[data-turn-bubble]") ?? target;
+      bubble.classList.remove("turn-flash");
+      // Force a reflow so clicking the same tick twice replays the flash
+      // instead of silently re-adding a class that is already settled.
+      void bubble.offsetWidth;
+      bubble.classList.add("turn-flash");
+      window.setTimeout(() => bubble.classList.remove("turn-flash"), 1300);
+    },
+    [messagesContainerRef, shouldAutoScrollRef],
+  );
+  /** Leave history and start following the live end of the turn again. */
+  const resumeFollowingLatest = useCallback(() => {
+    shouldAutoScrollRef.current = true;
+    scrollToBottom("instant");
+  }, [scrollToBottom, shouldAutoScrollRef]);
+
   const copyAssistantMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
     try {
@@ -878,30 +966,64 @@ export default function ChatPage() {
   /**
    * Shared helper: kick off a load. The user can cancel via the ✕ button;
    * otherwise the loading overlay stays until the API responds (no timeout).
+   *
+   * A session we already hold in memory is painted right away and refreshed
+   * in the background — switching back to a conversation read earlier in this
+   * visit costs nothing, and the overlay is reserved for the case where we
+   * genuinely have nothing to show.
    */
   const startSessionLoad = useCallback(
     (sid: string) => {
       loadAbortRef.current?.abort();
       const ctrl = new AbortController();
       loadAbortRef.current = ctrl;
-      setSessionLoading(true);
+      const cached = showCachedSession(sid);
+      setSessionLoading(!cached);
 
-      void loadSession(sid, ctrl.signal)
+      void loadSession(sid, { signal: ctrl.signal, revalidate: cached })
         .then(() => {
           if (!ctrl.signal.aborted) {
             loadAbortRef.current = null;
             setSessionLoading(false);
+            // Settle at the bottom once the transcript is really laid out.
+            // The layout-effect pin runs as the messages first render, when
+            // lazily-loaded images (ChatMessages `loading="lazy"`) and the
+            // `next/dynamic` capability viewers have not contributed their
+            // heights yet, so its `scrollHeight` is short and the viewport
+            // stops above the true bottom. One frame later those are in.
+            //
+            // Only on a cold open. A cached session is already painted at
+            // the bottom and this resolves after a background revalidate —
+            // re-arming there would yank a reader who had scrolled up.
+            if (!cached) {
+              shouldAutoScrollRef.current = true;
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                  // A newer session may have superseded this one while the
+                  // two frames elapsed; that load owns the viewport now.
+                  if (!ctrl.signal.aborted) scrollToBottom("instant");
+                });
+              });
+            }
           }
         })
         .catch(() => {
           if (!ctrl.signal.aborted) {
             loadAbortRef.current = null;
             setSessionLoading(false);
-            navigateToHome();
+            // A background refresh that fails leaves the cached copy on
+            // screen; only a cold open has nothing to fall back to.
+            if (!cached) navigateToHome();
           }
         });
     },
-    [loadSession, navigateToHome],
+    [
+      loadSession,
+      navigateToHome,
+      showCachedSession,
+      scrollToBottom,
+      shouldAutoScrollRef,
+    ],
   );
 
   // Initial mount — load the session from the URL.
@@ -966,9 +1088,18 @@ export default function ChatPage() {
     [],
   );
 
-  /* Load KBs */
+  /* Load KBs.
+   *
+   * Switching sessions remounts this page (the session id is a route
+   * segment), so these mount-time loads run again on every switch. They read
+   * through the shared client cache rather than forcing a refetch: forcing
+   * would put a handful of session-independent requests on the wire in
+   * parallel with the session fetch itself, and they'd compete for the same
+   * six connections — that, not the conversation's length, is what used to
+   * make opening a chat feel slow. The focus/visibility listener below is
+   * what keeps these values fresh. */
   useEffect(() => {
-    void refreshKnowledgeBases({ force: true });
+    void refreshKnowledgeBases();
   }, [refreshKnowledgeBases]);
 
   const refreshUserEnabledTools = useCallback(
@@ -985,28 +1116,8 @@ export default function ChatPage() {
 
   /* Load user tool prefs */
   useEffect(() => {
-    void refreshUserEnabledTools({ force: true });
+    void refreshUserEnabledTools();
   }, [refreshUserEnabledTools]);
-
-  const refreshLLMOptions = useCallback(async () => {
-    setLLMOptionsLoading(true);
-    try {
-      const payload = await listLLMOptions();
-      setLLMOptions(payload.options);
-      setActiveLLMDefault(payload.active);
-      setLLMOptionsError(false);
-    } catch {
-      setLLMOptionsError(true);
-      setLLMOptions([]);
-      setActiveLLMDefault(null);
-    } finally {
-      setLLMOptionsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshLLMOptions();
-  }, [refreshLLMOptions]);
 
   useEffect(() => {
     if (state.llmSelection || !activeLLMDefault) return;
@@ -1017,7 +1128,7 @@ export default function ChatPage() {
     if (typeof window === "undefined") return;
     const refresh = () => {
       void refreshKnowledgeBases({ force: true });
-      void refreshLLMOptions();
+      void refreshLLMOptions({ force: true, background: true });
       // Picks up toggles the user changed in another tab (/settings/tools).
       invalidateEnabledOptionalToolsCache();
       void refreshUserEnabledTools({ force: true });
@@ -1039,15 +1150,16 @@ export default function ChatPage() {
     setCapabilityConfigs(loadCapabilityPlaygroundConfigs());
   }, []);
 
-  /* URL query params (capability, tool) */
+  /* Composer setup requested by the URL that opened this page (capability,
+     tools, persistent mastery path). Runs once: from here on the composer is
+     the user's to change. */
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const p = new URLSearchParams(window.location.search);
-    const qc = p.get("capability");
-    const qt = p.getAll("tool");
-    if (qc !== null) handleSelectCapability(qc || "");
-    else if (qt.length) {
-      const valid = qt.filter((t): t is ToolName =>
+    const intent = readChatLaunchIntent(window.location.search);
+    if (intent.masteryPathId) setMasteryPathId(intent.masteryPathId);
+    if (intent.capability !== null) handleSelectCapability(intent.capability);
+    else if (intent.tools.length) {
+      const valid = intent.tools.filter((t): t is ToolName =>
         ALL_TOOLS.some((d) => d.name === t),
       );
       if (valid.length) setTools(Array.from(new Set(valid)));
@@ -1247,6 +1359,21 @@ export default function ChatPage() {
     () => buildSessionActivity(state.messages),
     [state.messages],
   );
+
+  // Context-window readout for the composer chip: the newest turn that was
+  // actually measured. Walking newest-first is what keeps the number steady
+  // while a new turn streams — the in-flight assistant message has no result
+  // event yet, so the walk falls through to the last completed turn and the
+  // chip flips exactly once, when the new measurement lands.
+  const contextBudget = useMemo(() => {
+    for (let i = state.messages.length - 1; i >= 0; i -= 1) {
+      const msg = state.messages[i];
+      if (msg.role !== "assistant") continue;
+      const budget = readContextBudget(msg.events);
+      if (budget) return budget;
+    }
+    return null;
+  }, [state.messages]);
 
   /**
    * Capability-config card rendered at the bottom of the Activity panel.
@@ -1865,7 +1992,7 @@ export default function ChatPage() {
                 <div className="w-full max-w-[960px] flex items-center justify-center gap-4">
                   <img
                     src="/logo_black.png"
-                    alt="DeepTutor"
+                    alt="Encore"
                     width={40}
                     height={40}
                     className="h-10 w-10 select-none"
@@ -1877,58 +2004,84 @@ export default function ChatPage() {
                 </div>
               </div>
             ) : (
-              <div
-                ref={messagesContainerRef}
-                data-chat-scroll-root="true"
-                onScroll={handleMessagesScroll}
-                onClick={handleMessagesClick}
-                // `both-edges` reserves the scrollbar gutter on both sides so
-                // the inner mx-auto column centers on the same axis as the
-                // header and composer (siblings outside this scrollport) on
-                // classic-scrollbar platforms; plain `stable` would shift it
-                // ~half a scrollbar-width left of them.
-                className={`w-full flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable_both-edges] ${hasMessages ? "pt-6" : "pt-2 pb-6"}`}
-                style={
-                  hasMessages
-                    ? (() => {
-                        // The bottom 40 px of the messages area fades to
-                        // transparent so content "dissolves" into the composer
-                        // gutter. Without enough bottom padding, the fade
-                        // overlaps the last assistant paragraph and looks like
-                        // a stuck scroll — the user reaches scrollHeight but
-                        // can still see only a faded sliver of text. paddingBottom
-                        // is sized so the fade falls over empty space.
-                        const maskImage =
-                          "linear-gradient(to bottom, transparent 0px, #000 32px, #000 calc(100% - 40px), transparent 100%)";
-                        return {
-                          paddingBottom: "48px",
-                          WebkitMaskImage: maskImage,
-                          maskImage,
-                        };
-                      })()
-                    : undefined
-                }
-              >
-                <div className="mx-auto w-full max-w-[960px] space-y-9 px-6">
-                  <ChatMessageList
-                    messages={state.messages}
-                    isStreaming={state.isStreaming}
-                    sessionId={state.sessionId}
-                    language={state.language}
-                    onCopyAssistantMessage={copyAssistantMessage}
-                    onRegenerateMessage={handleRegenerateMessage}
-                    onConfirmOutline={handleConfirmOutline}
-                    onPreviewAttachment={handlePreviewMessageAttachment}
-                    onDeleteTurn={deleteTurn}
-                    selectedBranches={state.selectedBranches}
-                    onEditMessage={editMessage}
-                    onSwitchBranch={switchBranch}
-                    onSubmitUserReply={submitUserReply}
-                  />
-                  <div ref={messagesEndRef} className="h-px w-full shrink-0" />
+              // Positioned wrapper spanning exactly the scrollport, so the
+              // turn navigator can overlay the left gutter without living
+              // inside the masked scroll container (its top/bottom fade
+              // would clip the rail's ends).
+              <div className="relative flex w-full flex-1 min-h-0 flex-col">
+                <div
+                  ref={messagesContainerRef}
+                  data-chat-scroll-root="true"
+                  onScroll={handleMessagesScroll}
+                  onClick={handleMessagesClick}
+                  // `both-edges` reserves the scrollbar gutter on both sides so
+                  // the inner mx-auto column centers on the same axis as the
+                  // header and composer (siblings outside this scrollport) on
+                  // classic-scrollbar platforms; plain `stable` would shift it
+                  // ~half a scrollbar-width left of them.
+                  className={`w-full flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable_both-edges] ${hasMessages ? "pt-6" : "pt-2 pb-6"}`}
+                  style={
+                    hasMessages
+                      ? (() => {
+                          // The bottom 40 px of the messages area fades to
+                          // transparent so content "dissolves" into the composer
+                          // gutter. Without enough bottom padding, the fade
+                          // overlaps the last assistant paragraph and looks like
+                          // a stuck scroll — the user reaches scrollHeight but
+                          // can still see only a faded sliver of text. paddingBottom
+                          // is sized so the fade falls over empty space.
+                          const maskImage =
+                            "linear-gradient(to bottom, transparent 0px, #000 32px, #000 calc(100% - 40px), transparent 100%)";
+                          return {
+                            paddingBottom: "48px",
+                            WebkitMaskImage: maskImage,
+                            maskImage,
+                          };
+                        })()
+                      : undefined
+                  }
+                >
+                  <div
+                    data-chat-column="true"
+                    className="mx-auto w-full max-w-[960px] space-y-9 px-6"
+                  >
+                    <ChatMessageList
+                      messages={state.messages}
+                      isStreaming={state.isStreaming}
+                      sessionId={state.sessionId}
+                      language={state.language}
+                      onCopyAssistantMessage={copyAssistantMessage}
+                      onRegenerateMessage={handleRegenerateMessage}
+                      onConfirmOutline={handleConfirmOutline}
+                      onPreviewAttachment={handlePreviewMessageAttachment}
+                      onDeleteTurn={deleteTurn}
+                      selectedBranches={state.selectedBranches}
+                      onEditMessage={editMessage}
+                      onSwitchBranch={switchBranch}
+                      onSubmitUserReply={submitUserReply}
+                    />
+                    <div
+                      ref={messagesEndRef}
+                      className="h-px w-full shrink-0"
+                    />
+                  </div>
                 </div>
+                <TurnNavigator
+                  entries={chatOutline}
+                  scrollRootRef={messagesContainerRef}
+                  onJump={jumpToTurn}
+                  onJumpToBottom={resumeFollowingLatest}
+                />
               </div>
             )}
+
+            {/* Anchors the conversation to the path it is advancing. Only when
+                the mastery capability is actually driving this turn — a stale
+                path id on a plain chat would be a lie. */}
+            {state.activeCapability === "mastery_path" &&
+              state.masteryPathId && (
+                <MasteryPathStrip pathId={state.masteryPathId} />
+              )}
 
             <ChatComposer
               composerRef={composerRef}
@@ -1955,6 +2108,10 @@ export default function ChatPage() {
               llmSelection={state.llmSelection}
               llmOptionsLoading={llmOptionsLoading}
               llmOptionsError={llmOptionsError}
+              onRefreshLLMOptions={() =>
+                void refreshLLMOptions({ force: true })
+              }
+              contextBudget={contextBudget}
               selectedBookReferences={selectedBookReferences}
               selectedNotebookRecords={selectedNotebookRecords}
               selectedHistorySessions={selectedHistorySessions}
@@ -2005,6 +2162,18 @@ export default function ChatPage() {
               onCancelStreaming={cancelStreamingTurn}
               prefillInputRef={prefillInputRef}
             />
+            {/* Starter chips sit between the composer and the spacer, so they
+                ride up with the composer on the empty screen and disappear the
+                moment the conversation has a first message. Clicking one sends
+                it through the normal send path: this page is already a draft
+                session when it has no messages, so that both creates the
+                session and starts it on the topic. */}
+            {!hasMessages ? (
+              <StarterSuggestions
+                onPick={(prompt) => void handleSend(prompt)}
+                disabled={state.isStreaming}
+              />
+            ) : null}
             <div
               aria-hidden="true"
               className="shrink-0"

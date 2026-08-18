@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
+import logging
 from pathlib import Path
 import secrets
+import shutil
 import time
 from typing import Any
 
 import httpx
 
-from deeptutor.services.config.model_catalog import (
-    ModelCatalogService,
-    get_model_catalog_service,
-)
+from deeptutor.services.config.model_catalog import ModelCatalogService
 from deeptutor.services.config.runtime_settings import load_system_settings
 
 from .catalog import CodexModelCatalog
@@ -44,6 +44,8 @@ from .oauth import (
     oauth_state_matches,
 )
 from .storage import CodexCredentialStore
+
+logger = logging.getLogger(__name__)
 
 MANAGED_BY = "openai_codex_oauth"
 CODEX_PROFILE_ID = "llm-profile-openai-codex-managed"
@@ -80,8 +82,24 @@ def codex_model_id(slug: str) -> str:
     return f"llm-model-openai-codex-{digest}"
 
 
-def _managed_model(model: CodexModel) -> dict[str, Any]:
-    return {
+def _stale_codex_config() -> CodexAuthError:
+    """The one 409 every runtime-profile rejection raises."""
+    return CodexAuthError(
+        "codex_catalog_unavailable",
+        "Refresh Codex models before using this configuration.",
+        409,
+    )
+
+
+def _codex_account_binding(account_id: str) -> str:
+    return hashlib.sha256(account_id.encode("utf-8")).hexdigest()
+
+
+def _managed_model(
+    model: CodexModel,
+    reasoning_effort: str | None = None,
+) -> dict[str, Any]:
+    managed = {
         "id": codex_model_id(model.slug),
         "name": model.display_name,
         "model": model.slug,
@@ -93,10 +111,23 @@ def _managed_model(model: CodexModel) -> dict[str, Any]:
         "codex_supports_parallel_tool_calls": model.supports_parallel_tool_calls,
         "codex_use_responses_lite": model.use_responses_lite,
     }
+    context_window = model.context_window or model.max_context_window
+    if context_window is not None:
+        managed["context_window"] = str(context_window)
+        managed["context_window_source"] = "metadata"
+    if reasoning_effort in model.supported_reasoning_levels:
+        managed["reasoning_effort"] = reasoning_effort
+    return managed
 
 
-def _managed_profile(snapshot: CatalogSnapshot) -> dict[str, Any]:
-    return {
+def _managed_profile(
+    snapshot: CatalogSnapshot,
+    reasoning_efforts: Mapping[str, str] | None = None,
+    *,
+    account_binding: str | None = None,
+) -> dict[str, Any]:
+    overrides = reasoning_efforts or {}
+    profile = {
         "id": CODEX_PROFILE_ID,
         "name": "OpenAI Codex",
         "binding": "openai_codex",
@@ -110,13 +141,113 @@ def _managed_profile(snapshot: CatalogSnapshot) -> dict[str, Any]:
         # profile stays with the operator who signed in and is never shared with
         # other users through grants (see deeptutor/multi_user/model_access.py).
         "owner_bound": True,
-        "models": [_managed_model(model) for model in snapshot.models],
+        "models": [_managed_model(model, overrides.get(model.slug)) for model in snapshot.models],
     }
+    if account_binding is not None:
+        profile["codex_account_binding"] = account_binding
+    return profile
+
+
+def _managed_profile_indexes(profiles: list[Any]) -> list[int]:
+    return [
+        index
+        for index, profile in enumerate(profiles)
+        if isinstance(profile, Mapping) and profile.get("managed_by") == MANAGED_BY
+    ]
+
+
+def _reasoning_efforts(profile: Mapping[str, Any]) -> dict[str, str]:
+    models = profile.get("models")
+    if not isinstance(models, list):
+        return {}
+    overrides: dict[str, str] = {}
+    for model in models:
+        if not isinstance(model, Mapping):
+            continue
+        slug = model.get("model")
+        effort = model.get("reasoning_effort")
+        if isinstance(slug, str) and slug and isinstance(effort, str) and effort:
+            overrides.setdefault(slug, effort)
+    return overrides
+
+
+def reconcile_codex_catalog_update(
+    current_catalog: Mapping[str, Any],
+    proposed_catalog: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep provider-owned Codex metadata authoritative on catalog writes."""
+    reconciled = deepcopy(dict(proposed_catalog))
+    current_profiles = current_catalog.get("services", {}).get("llm", {}).get("profiles", [])
+    proposed_services_raw = reconciled.get("services")
+    proposed_services = (
+        dict(proposed_services_raw) if isinstance(proposed_services_raw, Mapping) else {}
+    )
+    reconciled["services"] = proposed_services
+    proposed_llm_raw = proposed_services.get("llm")
+    proposed_llm = dict(proposed_llm_raw) if isinstance(proposed_llm_raw, Mapping) else {}
+    proposed_services["llm"] = proposed_llm
+    proposed_profiles = proposed_llm.get("profiles")
+    if not isinstance(proposed_profiles, list):
+        proposed_profiles = []
+        proposed_llm["profiles"] = proposed_profiles
+    if not isinstance(current_profiles, list):
+        return reconciled
+
+    current_indexes = _managed_profile_indexes(current_profiles)
+    proposed_indexes = _managed_profile_indexes(proposed_profiles)
+    proposed_index_set = set(proposed_indexes)
+    if not current_indexes:
+        proposed_llm["profiles"] = [
+            profile
+            for index, profile in enumerate(proposed_profiles)
+            if index not in proposed_index_set
+        ]
+        return reconciled
+
+    current_profile = deepcopy(dict(current_profiles[current_indexes[0]]))
+    proposed_profile = proposed_profiles[proposed_indexes[0]] if proposed_indexes else None
+    current_binding = current_profile.get("codex_account_binding")
+    proposed_binding = (
+        proposed_profile.get("codex_account_binding")
+        if isinstance(proposed_profile, Mapping)
+        else None
+    )
+    same_bound_account = (
+        isinstance(current_binding, str)
+        and bool(current_binding)
+        and proposed_binding == current_binding
+    )
+    requested = (
+        _reasoning_efforts(proposed_profile)
+        if isinstance(proposed_profile, Mapping) and same_bound_account
+        else _reasoning_efforts(current_profile)
+    )
+    for model in current_profile.get("models", []):
+        if not isinstance(model, dict):
+            continue
+        model.pop("reasoning_effort", None)
+        slug = model.get("model")
+        supported = model.get("codex_supported_reasoning_levels")
+        effort = requested.get(slug) if isinstance(slug, str) else None
+        if isinstance(supported, list) and effort in supported:
+            model["reasoning_effort"] = effort
+
+    insert_at = proposed_indexes[0] if proposed_indexes else current_indexes[0]
+    unmanaged = [
+        profile
+        for index, profile in enumerate(proposed_profiles)
+        if index not in proposed_index_set
+    ]
+    unmanaged.insert(min(insert_at, len(unmanaged)), current_profile)
+    proposed_llm["profiles"] = unmanaged
+    return reconciled
 
 
 def sync_codex_catalog(
     catalog_service: ModelCatalogService,
     snapshot: CatalogSnapshot,
+    *,
+    account_id: str | None = None,
 ) -> CatalogSyncResult:
     """Publish the managed Codex profile into the shared model catalog.
 
@@ -125,22 +256,38 @@ def sync_codex_catalog(
     install is usable right after sign-in without ever silently replacing a
     model somebody already picked.
     """
-    profile = _managed_profile(snapshot)
     activated = False
 
     def mutate(catalog: dict[str, Any]) -> None:
         nonlocal activated
         llm = catalog["services"]["llm"]
         profiles = llm.setdefault("profiles", [])
-        managed_indexes = [
-            index
-            for index, existing in enumerate(profiles)
-            if existing.get("managed_by") == MANAGED_BY
-        ]
+        # OAuth refreshes rebuild managed profiles, so preserve only the user-selected
+        # reasoning override by the provider's stable model slug.
+        managed_indexes = _managed_profile_indexes(profiles)
+        account_binding = _codex_account_binding(account_id) if account_id is not None else None
+        existing_profile = profiles[managed_indexes[0]] if managed_indexes else None
+        preserve_overrides = account_binding is None or (
+            isinstance(existing_profile, Mapping)
+            and existing_profile.get("codex_account_binding") == account_binding
+        )
+        reasoning_efforts = (
+            _reasoning_efforts(existing_profile)
+            if isinstance(existing_profile, Mapping) and preserve_overrides
+            else {}
+        )
+        profile = _managed_profile(
+            snapshot,
+            reasoning_efforts,
+            account_binding=account_binding,
+        )
         if managed_indexes:
             first_index = managed_indexes[0]
+            managed_index_set = set(managed_indexes)
             profiles[:] = [
-                existing for existing in profiles if existing.get("managed_by") != MANAGED_BY
+                existing
+                for index, existing in enumerate(profiles)
+                if index not in managed_index_set
             ]
             profiles.insert(min(first_index, len(profiles)), profile)
         else:
@@ -337,15 +484,32 @@ class CodexOAuthService:
                 payload,
                 expected_generation=operation.expected_generation,
             )
-            committed = self._store.commit_credentials(
-                credentials,
-                expected_generation=operation.expected_generation,
-            )
+            async with self._catalog_sync_lock:
+                catalog = self._model_catalog.load()
+                profiles = catalog.get("services", {}).get("llm", {}).get("profiles", [])
+                managed_indexes = (
+                    _managed_profile_indexes(profiles) if isinstance(profiles, list) else []
+                )
+                committed = self._store.commit_credentials(
+                    credentials,
+                    expected_generation=operation.expected_generation,
+                )
+                account_binding = _codex_account_binding(committed.account_id)
+                if any(
+                    not isinstance(profiles[index], Mapping)
+                    or profiles[index].get("codex_account_binding") != account_binding
+                    for index in managed_indexes
+                ):
+                    remove_codex_catalog(self._model_catalog)
             operation.operation_state = "fetching_models"
             await self._catalog.invalidate()
             snapshot = await self._catalog.get(committed, force=True)
             async with self._catalog_sync_lock:
-                sync_result = sync_codex_catalog(self._model_catalog, snapshot)
+                sync_result = sync_codex_catalog(
+                    self._model_catalog,
+                    snapshot,
+                    account_id=committed.account_id,
+                )
             self._last_snapshot = snapshot
             operation.activated = sync_result.activated
             operation.operation_state = "completed"
@@ -414,7 +578,11 @@ class CodexOAuthService:
                     409,
                 )
             snapshot = await self._catalog.get(credentials, force=True)
-            sync_codex_catalog(self._model_catalog, snapshot)
+            sync_codex_catalog(
+                self._model_catalog,
+                snapshot,
+                account_id=credentials.account_id,
+            )
             self._last_snapshot = snapshot
             return self.public_status()
 
@@ -431,6 +599,56 @@ class CodexOAuthService:
                 return credentials.public_token()
             refreshed = await self._refresh_credentials(credentials)
             return refreshed.public_token()
+
+    def profile_matches_current_account(self, profile: Mapping[str, Any]) -> bool:
+        credentials = self._store.load_credentials()
+        return bool(
+            credentials is not None
+            and profile.get("managed_by") == MANAGED_BY
+            and profile.get("codex_account_binding")
+            == _codex_account_binding(credentials.account_id)
+        )
+
+    def validate_runtime_profile(
+        self,
+        token: CodexToken,
+        model_slug: str,
+        reasoning_effort: str | None = None,
+    ) -> None:
+        """Reject a model config that no longer belongs to the loaded token.
+
+        ``reasoning_effort`` is accepted for call compatibility and
+        deliberately unused — see the membership check below.
+        """
+        del reasoning_effort
+        credentials = self._store.load_credentials()
+        catalog = self._model_catalog.load()
+        profiles = catalog.get("services", {}).get("llm", {}).get("profiles", [])
+        managed_indexes = _managed_profile_indexes(profiles) if isinstance(profiles, list) else []
+        profile = profiles[managed_indexes[0]] if managed_indexes else None
+        if (
+            credentials is None
+            or credentials.generation != token.generation
+            or credentials.account_id != token.account_id
+            or not isinstance(profile, Mapping)
+        ):
+            raise _stale_codex_config()
+
+        # Only a binding that is PRESENT and different is an account switch.
+        # Profiles published before this key existed carry none at all, and
+        # reading absence as a mismatch would lock every account that signed in
+        # before it shipped out of Codex until they re-ran "Refresh models".
+        binding = profile.get("codex_account_binding")
+        if binding is not None and binding != _codex_account_binding(token.account_id):
+            raise _stale_codex_config()
+
+        # Membership only. ``reasoning_effort`` is a per-request knob, not part
+        # of the identity that ties a config to a token: a caller that varies it
+        # for one turn is making a legal request, not presenting a stale config.
+        for model in profile.get("models", []):
+            if isinstance(model, Mapping) and model.get("model") == model_slug:
+                return
+        raise _stale_codex_config()
 
     async def _refresh_credentials(
         self,
@@ -519,6 +737,61 @@ class CodexOAuthService:
             async with self._inference_lock:
                 self._logging_out = False
 
+    async def set_reasoning_effort(
+        self,
+        model_slug: str,
+        reasoning_effort: str | None,
+    ) -> dict[str, Any]:
+        async with self._catalog_sync_lock:
+
+            def mutate(catalog: dict[str, Any]) -> None:
+                profiles = catalog["services"]["llm"].get("profiles", [])
+                managed_indexes = _managed_profile_indexes(profiles)
+                if not managed_indexes:
+                    raise CodexAuthError(
+                        "codex_catalog_unavailable",
+                        "Sign in to Codex before changing reasoning effort.",
+                        409,
+                    )
+                profile = profiles[managed_indexes[0]]
+                account_binding = profile.get("codex_account_binding")
+                credentials = self._store.load_credentials()
+                if (
+                    not isinstance(account_binding, str)
+                    or credentials is None
+                    or account_binding != _codex_account_binding(credentials.account_id)
+                ):
+                    raise CodexAuthError(
+                        "codex_catalog_unavailable",
+                        "Refresh Codex models before changing reasoning effort.",
+                        409,
+                    )
+                for model in profile.get("models", []):
+                    if not isinstance(model, dict) or model.get("model") != model_slug:
+                        continue
+                    supported = model.get("codex_supported_reasoning_levels")
+                    if reasoning_effort is not None and (
+                        not isinstance(supported, list) or reasoning_effort not in supported
+                    ):
+                        raise CodexAuthError(
+                            "reasoning_effort_unsupported",
+                            "The selected Codex model does not support that reasoning effort.",
+                            422,
+                        )
+                    if reasoning_effort is None:
+                        model.pop("reasoning_effort", None)
+                    else:
+                        model["reasoning_effort"] = reasoning_effort
+                    return
+                raise CodexAuthError(
+                    "codex_model_not_found",
+                    "The selected model is not part of this Codex account.",
+                    404,
+                )
+
+            self._model_catalog.update(mutate)
+            return self.public_status()
+
     def public_status(self) -> dict[str, Any]:
         operation = self._operation
         credentials: CodexCredentials | None = None
@@ -560,6 +833,7 @@ class CodexOAuthService:
             "catalog_source": snapshot.source if snapshot is not None else None,
             "catalog_fetched_at": (snapshot.fetched_at if snapshot is not None else None),
             "active_model": self._active_codex_model(),
+            "models": self._reasoning_effort_models(credentials),
             "activated": (operation.activated if operation is not None else False),
             "error_code": (
                 storage_error or (operation.error_code if operation is not None else None)
@@ -601,6 +875,54 @@ class CodexOAuthService:
             return None
         value = model.get("model")
         return value if isinstance(value, str) and value else None
+
+    def _reasoning_effort_models(
+        self,
+        credentials: CodexCredentials | None,
+    ) -> list[dict[str, Any]]:
+        catalog = self._model_catalog.load()
+        profiles = catalog.get("services", {}).get("llm", {}).get("profiles", [])
+        if not isinstance(profiles, list):
+            return []
+        managed_indexes = _managed_profile_indexes(profiles)
+        if not managed_indexes:
+            return []
+        profile = profiles[managed_indexes[0]]
+        account_binding = profile.get("codex_account_binding")
+        if (
+            not isinstance(account_binding, str)
+            or credentials is None
+            or account_binding != _codex_account_binding(credentials.account_id)
+        ):
+            return []
+        models = profile.get("models", [])
+        if not isinstance(models, list):
+            return []
+
+        result: list[dict[str, Any]] = []
+        for model in models:
+            if not isinstance(model, Mapping):
+                continue
+            slug = model.get("model")
+            if not isinstance(slug, str) or not slug:
+                continue
+            name = model.get("name")
+            supported = model.get("codex_supported_reasoning_levels")
+            levels = (
+                [level for level in supported if isinstance(level, str)]
+                if isinstance(supported, list)
+                else []
+            )
+            effort = model.get("reasoning_effort")
+            result.append(
+                {
+                    "model": slug,
+                    "name": name if isinstance(name, str) and name else slug,
+                    "supported_reasoning_levels": levels,
+                    "reasoning_effort": effort if isinstance(effort, str) else None,
+                }
+            )
+        return result
 
     def _credentials_from_payload(
         self,
@@ -689,10 +1011,11 @@ class CodexOAuthService:
 
 
 _SERVICE_INSTANCES: dict[str, CodexOAuthService] = {}
+_RELOCATED_SECRET_ROOTS: set[str] = set()
 
 
 def _codex_user_root() -> Path:
-    """Anchor the credential store to the account that owns the caller's scope.
+    """Resolve the user root of the account that owns the caller's scope.
 
     A Codex token is issued against one person's ChatGPT plan. Resolving other
     users to the administrator's root would run a whole deployment on a single
@@ -700,25 +1023,119 @@ def _codex_user_root() -> Path:
     Owner resolution is what keeps that true while still letting a partner —
     a synthetic user with a workspace but no account — inherit the login of
     the person who owns it (#711).
+
+    This is where the store used to live; :func:`_codex_secrets_root` is where
+    it lives now, and this is only the location it is relocated from.
     """
     from deeptutor.multi_user.paths import get_owner_path_service
 
     return get_owner_path_service().get_user_root().resolve()
 
 
+def _codex_secrets_root() -> Path:
+    """Resolve the owner's secret root, moving an older login into it on first use.
+
+    For a non-admin account the user root of :func:`_codex_user_root` sits
+    inside the workspace subtree the sandbox runner mounts, so a refresh token
+    stored there was readable by every other account's ``exec`` (the admin's own
+    root was never mounted — only ``data/user/workspace`` is). ``data/system``
+    is mounted for nobody, so the store now lives under the owner's directory
+    there instead, keyed by the same owner resolution as before.
+    """
+    from deeptutor.multi_user.paths import get_owner_secrets_dir
+
+    secrets_root = get_owner_secrets_dir()
+    key = str(secrets_root)
+    if key not in _RELOCATED_SECRET_ROOTS:
+        # Memoised only on success: a relocation that failed (a permission
+        # problem, say) leaves the token in the exposed location, and retrying
+        # on the next resolution is strictly better than deciding once per
+        # process that the move is done.
+        if _relocate_legacy_store(_codex_user_root(), secrets_root):
+            _RELOCATED_SECRET_ROOTS.add(key)
+    return secrets_root
+
+
+def _relocate_legacy_store(user_root: Path, secrets_root: Path) -> bool:
+    """Move a login out of the sandbox-visible tree by rename, never by copy.
+
+    A copy would leave the plaintext refresh token exactly where the exposure
+    was, so this relocates the whole store directory or does nothing at all: a
+    login already at the safe location wins, and the stale one is reported for
+    an operator to remove by hand, mirroring
+    :func:`~deeptutor.multi_user.paths.migrate_legacy_multi_user_tree`.
+
+    Returns whether the legacy location is now settled — i.e. whether there is
+    nothing left to retry.
+    """
+    legacy = CodexCredentialStore(user_root)
+    target = CodexCredentialStore(secrets_root).root
+    try:
+        # The legacy tree is inside a subtree other accounts' sandboxed exec can
+        # write. Checking only the leaf is not enough: a symlinked ``private/``
+        # would make this relocate *another* account's store into this owner's
+        # secrets dir, where the server would then use it as their login.
+        legacy.assert_safe_location()
+    except CodexAuthError:
+        logger.warning(
+            "Refusing to relocate Codex credentials: %s is not a plain directory",
+            legacy.root,
+        )
+        return True  # nothing we will ever move; do not retry
+    if not legacy.root.is_dir():
+        return True
+    if target.exists():
+        logger.warning(
+            "Codex credentials already exist at %s; the sandbox-visible copy at "
+            "%s was left untouched and should be removed by hand",
+            target,
+            legacy.root,
+        )
+        return True
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(legacy.root), str(target))
+    except OSError:
+        # A failed copy leaves a partial target and an intact source; a failed
+        # source cleanup leaves a complete target. Only the former is safe to
+        # discard, and the credential file is what tells the two apart.
+        if legacy.credentials_path.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        logger.warning("Could not relocate Codex credentials %s -> %s", legacy.root, target)
+        return False
+    logger.info("Relocated Codex credentials out of the sandbox-visible tree: %s", target)
+    return True
+
+
+def _owner_model_catalog_service() -> ModelCatalogService:
+    """The catalog a sign-in publishes its managed profile into.
+
+    Deliberately NOT :func:`get_model_catalog_service`, which resolves an
+    ordinary user to the *administrator's* catalog: a non-admin sign-in would
+    then write their personal Codex profile into the shared catalog, where it
+    would show up in the administrator's model list and in every other user's
+    resolution path. Owner scope keys this to the same account as the
+    credential store, so a login and its profile can never land in different
+    places (#781).
+    """
+    from deeptutor.multi_user.personal_models import owner_catalog_service
+
+    return owner_catalog_service()
+
+
 def get_codex_oauth_service() -> CodexOAuthService:
-    user_root = _codex_user_root()
-    key = str(user_root)
+    secrets_root = _codex_secrets_root()
+    key = str(secrets_root)
     service = _SERVICE_INSTANCES.get(key)
     if service is None:
         callback_forward_port = load_system_settings()["frontend_port"]
-        store = CodexCredentialStore(user_root)
+        store = CodexCredentialStore(secrets_root)
         http = httpx.AsyncClient(timeout=30)
         catalog = CodexModelCatalog(store, http=http)
         service = CodexOAuthService(
             store,
             catalog,
-            get_model_catalog_service(),
+            _owner_model_catalog_service(),
             oauth_client=CodexOAuthClient(http),
             callback_forward_port=callback_forward_port,
         )
@@ -769,6 +1186,7 @@ __all__ = [
     "codex_model_id",
     "deliver_codex_oauth_callback",
     "get_codex_oauth_service",
+    "reconcile_codex_catalog_update",
     "remove_codex_catalog",
     "ssh_forward_command",
     "sync_codex_catalog",

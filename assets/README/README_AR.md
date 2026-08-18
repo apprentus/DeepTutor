@@ -17,6 +17,7 @@
 <p align="center">
   <a href="../../README.md"><img alt="English" height="40" src="https://img.shields.io/badge/English-CDCFD4"></a>&nbsp;
   <a href="README_CN.md"><img alt="简体中文" height="40" src="https://img.shields.io/badge/简体中文-CDCFD4"></a>&nbsp;
+  <a href="README_TW.md"><img alt="繁體中文" height="40" src="https://img.shields.io/badge/繁體中文-CDCFD4"></a>&nbsp;
   <a href="README_JA.md"><img alt="日本語" height="40" src="https://img.shields.io/badge/日本語-CDCFD4"></a>&nbsp;
   <a href="README_ES.md"><img alt="Español" height="40" src="https://img.shields.io/badge/Español-CDCFD4"></a>&nbsp;
   <a href="README_FR.md"><img alt="Français" height="40" src="https://img.shields.io/badge/Français-CDCFD4"></a>&nbsp;
@@ -63,7 +64,7 @@ DeepTutor هو بيئة تعلم أصيلة للوكلاء تربط التدري
 - **سياق تعلم متصل** — قواعد المعرفة والكتب ومسودات Co-Writer ودفاتر الملاحظات وبنوك الأسئلة والشخصيات والذاكرة متاحة في جميع سير العمل بدلاً من العيش في أدوات معزولة.
 - **الوكلاء الفرعيون والشركاء** — استشارة واجهة CLI برمجية حية (Claude Code أو Codex أو Gemini أو Kimi أو opencode أو MiMo) أو Partner مباشرةً من أي دور (أو استيراد محادثاتهم السابقة)، وتشغيل رفاق IM دائمين على نفس الدماغ.
 - **معرفة متعددة المحركات** — مكتبات RAG مُصدَّرة عبر LlamaIndex وPageIndex وGraphRAG وLightRAG أو مخزن Obsidian مرتبط، مع تحليل مستندات قابل للتوصيل.
-- **أدوات ومهارات قابلة للتوسيع** — أدوات مدمجة وخوادم MCP ونماذج توليد الصور/الفيديو/الصوت ومهارات مجتمع قابلة للتثبيت من EduHub.
+- **أدوات ومهارات قابلة للتوسيع** — أدوات مدمجة وخوادم MCP وتطبيقات CLI ونماذج توليد الصور/الفيديو/الصوت ومهارات مجتمع قابلة للتثبيت من EduHub.
 - **ذاكرة قابلة للتدقيق** — آثار L1 وملخصات سطحية L2 وتركيب L3 تجعل التخصيص مرئياً وقابلاً للتحرير، مع Memory Graph يتتبع كل ادعاء إلى دليله.
 
 ---
@@ -109,10 +110,10 @@ python -m pip install -e .
 ( cd web && npm ci --legacy-peer-deps )
 
 deeptutor init
-deeptutor start
+deeptutor start --dev
 ```
 
-تشغّل تثبيتات المصدر Next.js في وضع التطوير مقابل دليل `web/` المحلي؛ كل شيء آخر (تخطيط التهيئة، المنافذ، الإيقاف بـ `Ctrl+C`) يطابق الخيار 1.
+يبني أمر `deeptutor start` واجهة `web/` المحلية للإنتاج مرة واحدة ويعيد استخدامها؛ بينما يشغّل `--dev` تطبيق Next.js مع إعادة التحميل الفوري للوحدات (HMR). تخطيط التهيئة، والمنافذ، والإيقاف بـ `Ctrl+C` يطابق الخيار 1.
 
 <details>
 <summary><b>بيئة Conda</b> (بديلاً عن <code>venv</code>)</summary>
@@ -143,11 +144,11 @@ pip install -e ".[math-animator]"   # إضافة Manim؛ تتطلب LaTeX/ffmpeg
 
 **تغيير تبعيات الواجهة الأمامية:** شغّل `npm install --legacy-peer-deps` لتحديث `web/package-lock.json`، ثم ارفع كلاً من `web/package.json` و`web/package-lock.json`.
 
-**خادم تطوير متوقف:** إذا أبلغ `deeptutor start` عن واجهة أمامية موجودة لا تستجيب، أوقف الـ PID الذي يطبعه. إذا لم يكن هناك أي عملية Next.js تعمل فعلياً، فملفات القفل قديمة — احذفها وأعد المحاولة:
+**خادم تطوير متوقف:** إذا أبلغ `deeptutor start --dev` عن واجهة أمامية موجودة لا تستجيب، أوقف الـ PID الذي يطبعه. إذا لم يكن هناك أي عملية Next.js تعمل فعلياً، فملفات القفل قديمة — احذفها وأعد المحاولة:
 
 ```bash
 rm -f web/.next/dev/lock web/.next/lock
-deeptutor start
+deeptutor start --dev
 ```
 
 </details>
@@ -286,7 +287,7 @@ deeptutor config show
 | `system.json` | منافذ الخلفية/الواجهة الأمامية، وقاعدة API العامة، وCORS، والتحقق من SSL، ودليل المرفقات وحدود الرفع/الاستخراج |
 | `auth.json` | تبديل مصادقة اختياري، واسم مستخدم، وتجزئة كلمة مرور، وإعدادات الرمز/الكوكي |
 | `integrations.json` | إعدادات تكامل PocketBase والمرافق الاختيارية |
-| `interface.json` | تفضيلات لغة واجهة المستخدم / الثيمة / الشريط الجانبي |
+| `interface.json` | تفضيلات لغة واجهة المستخدم ولغة مخرجات النموذج / الثيمة / الشريط الجانبي |
 | `main.yaml` | افتراضيات سلوك وقت التشغيل وحقن المسار |
 | `agents.yaml` | إعدادات درجة حرارة القدرة/الأداة والرمز |
 
@@ -408,7 +409,7 @@ Co-Writer هو مساحة عمل Markdown ذات عرض مقسَّم للتقا�
 <img src="../../assets/figs/web-1.4.6+/book/03-book-demo%20interactive%20module.png" alt="كتلة ودجت تفاعلية في الكتاب" width="31%">
 </p>
 
-يُجمِّع كل فصل إلى كتل مكتوبة — نصوص وأقسام وتنبيهات واختبارات وبطاقات فلاش وجداول زمنية ورمز وأشكال وHTML تفاعلية ورسوم متحركة وأشكال مفاهيم وغوص عميق وملاحظات مستخدم — وكل صفحة لها Page Chat الخاصة بها. الكتل قابلة للتحرير: أدرج أو حرّك أو أعد التوليد أو غيّر نوع الكتلة بدون إعادة كتابة الفصل. أوامر الصيانة مثل `deeptutor book health` و`deeptutor book refresh-fingerprints` تساعد في الكشف عن انجراف معرفة المصدر من الصفحات المُجمَّعة.
+يُجمِّع كل فصل إلى كتل مكتوبة — نصوص وأقسام وتنبيهات واختبارات وبطاقات فلاش وجداول زمنية ورمز وأشكال وHTML تفاعلية ورسوم متحركة وأشكال مفاهيم وغوص عميق وملاحظات مستخدم — وكل صفحة لها Page Chat الخاصة بها. الكتل قابلة للتحرير: أدرج أو حرّك أو أعد التوليد أو أعد كتابة المحتوى أو غيّر النوع دون إعادة عمل الفصل. تتجمّع الصفحات التي زُرتها والإشارات المرجعية ومحاولات الاختبار في نتيجة إتمام وفصول ضعيفة؛ ويمكن تصدير أي كتاب إلى Markdown. التجميع الطويل يتوقف مؤقتاً ويستأنف؛ ويُبلِّغ `deeptutor book health` و`refresh-fingerprints` عن انجراف معرفة المصدر.
 
 </details>
 
@@ -425,7 +426,7 @@ Co-Writer هو مساحة عمل Markdown ذات عرض مقسَّم للتقا�
 <img src="../../assets/figs/web-1.4.6+/knowledge/01-create%20knowledge%20base.png" alt="إنشاء قاعدة معرفة" width="900">
 </div>
 
-عند إنشاء قاعدة معرفة، إما أن **تنشئ جديدة** (تحميل مستندات وبناء فهرس جديد) أو **تربط موجودة** (إعادة استخدام فهرس مبني في مكان آخر، قراءة في مكانه بدون إعادة فهرسة). تكتب إعادة الفهرسة دليل `version-N` مسطحاً جديداً وتحتفظ بالسابقة، لذا لا يُدمَّر فهرس عامل أبداً أثناء إعادة البناء. يمكن إزالة مستند واحد حتى من قاعدة في حالة **خطأ** — إسقاط ملف فشل تحليله بدون حذف وإعادة بناء كاملين. تحليل المستندات — نص فقط أو MinerU أو Docling أو markitdown أو PyMuPDF4LLM — يُختار في **الإعدادات ← قاعدة المعرفة**، مع إيقاف تنزيلات النماذج المحلية افتراضياً. تعكس واجهة CLI دورة الحياة مع `deeptutor kb list` و`info` و`create` و`add` و`search` و`set-default` و`delete`.
+عند إنشاء قاعدة معرفة، إما أن **تنشئ جديدة** (تحميل مستندات وبناء فهرس جديد) أو **تربط موجودة** (إعادة استخدام فهرس مبني في مكان آخر، قراءة في مكانه بدون إعادة فهرسة). تكتب إعادة الفهرسة دليل `version-N` مسطحاً جديداً وتحتفظ بالسابقة، لذا لا يُدمَّر فهرس عامل أبداً أثناء إعادة البناء. يمكن إزالة مستند واحد حتى من قاعدة في حالة **خطأ** — إسقاط ملف فشل تحليله بدون حذف وإعادة بناء كاملين. تحليل المستندات — نص فقط أو MinerU أو Docling أو markitdown أو PyMuPDF4LLM أو LiteParse — يُختار في **الإعدادات ← قاعدة المعرفة**، مع إيقاف تنزيلات النماذج المحلية افتراضياً. يمكن لـ Docling أيضاً العمل في وضع **بعيد** مقابل خادم Docling Serve (بلا حاجة إلى تثبيت محلي أو نماذج)، يُهيَّأ عبر **الإعدادات ← تحليل المستندات** (`mode=remote`، وعنوان URL أساسي للخادم، ومفتاح API اختياري) أو متغيرات البيئة `DOCLING_MODE` / `DOCLING_API_BASE_URL` / `DOCLING_API_TOKEN`. تعكس واجهة CLI دورة الحياة مع `deeptutor kb list` و`info` و`create` و`add` و`search` و`set-default` و`delete`.
 
 </details>
 
@@ -436,7 +437,7 @@ Co-Writer هو مساحة عمل Markdown ذات عرض مقسَّم للتقا�
 <img src="../../assets/figs/web-1.4.6+/learning-space/00-overview.png" alt="مركز فضاء التعلم في DeepTutor" width="900">
 </div>
 
-فضاء التعلم هو طبقة المكتبة والتخصيص — حيث تعيش الأشياء التي تستمر. **المحادثات والمواد** تحتفظ بتاريخ المحادثة ودفاتر الملاحظات وبنك الأسئلة (كل سؤال محفوظ يحتفظ بإجابتك والإجابة المرجعية وشرحاً). **التخصيص** يحتفظ بمسارات الإتقان والشخصيات (إعدادات السلوك المسبقة مثل *زميل* و*مساعد بحثي* و*معلم*) والمهارات (دليل `SKILL.md` يقرأه النموذج عند الطلب). كل شيء هنا يمكن إعادة استخدامه من Chat وPartners وCo-Writer وBook.
+فضاء التعلم هو طبقة المكتبة والتخصيص — حيث تعيش الأشياء التي تستمر. **المحادثات والمواد** تحتفظ بتاريخ المحادثة ودفاتر الملاحظات وبنك الأسئلة (كل سؤال محفوظ يحتفظ بإجابتك والإجابة المرجعية وشرحاً). **التخصيص** يحتفظ بمسارات الإتقان والشخصيات (إعدادات السلوك المسبقة مثل *زميل* و*مساعد بحثي* و*معلم*)، والمهارات (دليل `SKILL.md` يقرأه النموذج عند الطلب)، و**خدمات MCP** — متجر مُنسَّق من خوادم MCP المستضافة تُثبّتها لنفسك بنقرة واحدة، بالإضافة إلى أي خادم بعيد تهيّئه بعنوان URL — و**تطبيقات CLI**، أدوات سطر أوامر من كتالوج [CLI-Anything](https://github.com/HKUDS/CLI-Anything) يستدعيها وكيل المحادثة مباشرةً، مع دليل استخدام خاص بكل تطبيق يُحمَّل عند الطلب. كل شيء هنا يمكن إعادة استخدامه من Chat وPartners وCo-Writer وBook.
 
 <div align="center">
 <img src="../../assets/figs/web-1.4.6+/learning-space/07-%20download%20skills%20from%20eduhub.png" alt="استيراد مهارات من EduHub" width="900">
@@ -470,7 +471,7 @@ Co-Writer هو مساحة عمل Markdown ذات عرض مقسَّم للتقا�
 <img src="../../assets/figs/web-1.4.6+/settings/00-setting%20overview.png" alt="مركز إعدادات DeepTutor" width="900">
 </div>
 
-الإعدادات هي لوحة التحكم التشغيلية، مع شريط حالة مباشر (الخلفية وLLM والتضمين والبحث) وبطاقة واحدة لكل منطقة: **المظهر** (الثيمة، ولغة واجهة المستخدم، وتنسيق كتل الرمز)، **الشبكة** (قاعدة API والمنافذ وCORS)، **النماذج** (LLM والتضمين والبحث وتحويل النص إلى كلام وتحويل الكلام إلى نص وتوليد الصور وتوليد الفيديو)، **قاعدة المعرفة** (محرك تحليل المستندات)، **Chat** (الأدوات وخوادم MCP والمعاملات لكل قدرة، وحدود المرفقات)، **الشركاء والوكلاء** (الوكلاء الفرعيون الذين يمكنك استشارتهم من دور)، و**الذاكرة** (ميزانيات الموحّد).
+الإعدادات هي لوحة التحكم التشغيلية، مع شريط حالة مباشر (سلامة الخلفية والذاكرة المقيمة عبر شجرة العمليات) وبطاقة واحدة لكل منطقة: **المظهر** (الثيمة، ولغة واجهة المستخدم ولغة مخرجات النموذج، وتنسيق كتل الرمز)، **الشبكة** (قاعدة API والمنافذ وCORS)، **النماذج** (LLM والتضمين والبحث وتحويل النص إلى كلام وتحويل الكلام إلى نص وتوليد الصور وتوليد الفيديو)، **قاعدة المعرفة** (محرك تحليل المستندات)، **Chat** (الأدوات والمعاملات لكل قدرة، وحدود المرفقات)، **الشركاء والوكلاء** (الوكلاء الفرعيون الذين يمكنك استشارتهم من دور)، و**الذاكرة** (ميزانيات الموحّد).
 
 <div align="center">
 <img src="../../assets/figs/web-1.4.6+/settings/01-appearance%20settings.png" alt="إعدادات المظهر والثيمات في DeepTutor" width="900">
@@ -478,7 +479,9 @@ Co-Writer هو مساحة عمل Markdown ذات عرض مقسَّم للتقا�
 
 تستخدم معظم الأقسام تدفق صياغة-وتطبيق، لذا يمكنك اختبار مزود قبل الالتزام به. تشحن أربع ثيمات في الصندوق — Default وCream وDark وGlass. ملفات `.env` في جذر المشروع تُتجاهل عمداً؛ يعيش تهيئة وقت التشغيل تحت `data/user/settings/*.json` إلا إذا وجّه `DEEPTUTOR_HOME` أو `deeptutor start --home` التطبيق في مكان آخر.
 
-**OpenAI Codex OAuth (تجريبي).** اختيار **OpenAI Codex** ضمن **النماذج ← LLM** يستبدل حقول مفتاح API بتسجيل دخول عبر المتصفح يعمل مقابل خطة ChatGPT الخاصة بك، لذا لا حاجة إلى `OPENAI_API_KEY`. تعيش الرموز (tokens) فقط في `<user-root>/private/openai-codex/`، ولا يقرأ DeepTutor أو يعدّل أبداً تسجيل دخولك إلى CLI في `~/.codex`. تأتي قائمة النماذج من الكتالوج الحي لذلك الحساب؛ تسجيل الدخول ينشر الملف الشخصي لكنه لا يصبح النموذج النشط إلا عندما لا يكون هناك LLM مهيأ بعد. ولأن الرمز يخوّل خطة شخص واحد فقط، فالملف الشخصي غير قابل للمشاركة عبر منح المستخدمين — كل حساب يسجّل دخوله بنفسه.
+**OpenAI Codex OAuth (تجريبي).** اختيار **OpenAI Codex** ضمن **النماذج ← LLM** يستبدل حقول مفتاح API بتسجيل دخول عبر المتصفح يعمل مقابل خطة ChatGPT الخاصة بك، لذا لا حاجة إلى `OPENAI_API_KEY`. تعيش الرموز (tokens) فقط في `data/system/user-secrets/<owner>/private/openai-codex/` — في نشر Compose متعدد الحاويات، خارج كل شجرة يمكن لصندوق أمان التنفيذ الوصول إليها — ولا يقرأ DeepTutor أو يعدّل أبداً تسجيل دخولك إلى CLI في `~/.codex`. تأتي قائمة النماذج من الكتالوج الحي لذلك الحساب؛ تسجيل الدخول ينشر الملف الشخصي لكنه لا يصبح النموذج النشط إلا عندما لا يكون هناك LLM مهيأ بعد. ولأن الرمز يخوّل خطة شخص واحد فقط، فالملف الشخصي غير قابل للمشاركة عبر منح المستخدمين — كل حساب يسجّل دخوله بنفسه، بما في ذلك المستخدمون العاديون: تظهر بطاقتهم ضمن **النماذج ← LLM**، وتبقى النماذج الناتجة والكتالوج وتسجيل الخروج خاصة بذلك الحساب.
+
+تستخدم عمليات نشر Docker وPodman المحلية الافتراضية شبكات loopback منفصلة وتحتاج إلى جسر مؤقت أثناء تسجيل الدخول. اتبع [دليل جسر OAuth المؤقت المحلي لـ Codex](../../CONTAINERIZATION.md#temporary-local-codex-oauth-bridge) للاطلاع على أوامر Docker وCompose وPodman والإزالة الدقيقة.
 
 في حالة النشر عن بُعد، يكون `localhost` الخاص بالمتصفح و`localhost` الخاص بالخادم جهازين مختلفين، لذا لا يستطيع وكيل عكسي عادي وحده نقل استدعاء (callback) localhost من المتصفح إلى الخادم. استخدم نفق SSH كجسر للاستدعاء. يصل النفق إلى منفذ الويب المنشور بالفعل؛ يعيد Next.js توجيه مسار الاستدعاء الدقيق فقط إلى وسيط الاستدعاء العام، ويتحقق الوسيط من `state` قبل التوجيه إلى عملية OAuth الأصلية. يبقى مستمع الاستدعاء على loopback الخلفية، والمنفذان `1455` و`1457` غير منشورين، ويدعم هذا المسار شبكة جسر Docker الافتراضية.
 
@@ -510,12 +513,13 @@ data/
 ├── user/                    # مساحة عمل المشرف + الإعدادات العامة
 ├── users/<uid>/             # نطاق المستخدم: تاريخ المحادثة والذاكرة ودفاتر الملاحظات وقواعد المعرفة
 ├── partners/<id>/workspace/ # نطاق المستخدم الاصطناعي (الشريك)
-└── system/                  # auth/users.json · grants/<uid>.json · audit/usage.jsonl
+├── cli-apps/                # تطبيقات CLI المثبَّتة، مُحمَّلة للقراءة فقط داخل صندوق الأمان
+└── system/                  # auth · grants · audit · user-secrets/<owner> (رموز OAuth)
 ```
 
 **أول مستخدم مسجَّل يصبح مشرفاً** ويمتلك كتالوجات النماذج وبيانات اعتماد المزود وقواعد المعرفة المشتركة والمهارات والمنح لكل مستخدم. يحصل الجميع الآخرون على مساحة عمل معزولة وصفحة إعدادات منقوصة — تظهر النماذج وقواعد المعرفة والمهارات المعيّنة من المشرف كخيارات محدودة النطاق وللقراءة فقط، وليس كمفاتيح API خام.
 
-**تفعيله:** فعّل المصادقة في `data/user/settings/auth.json`، وأعد تشغيل `deeptutor start`، وسجّل أول مشرف على `/register`، ثم أضف المستخدمين من `/admin/users` وعيّن النماذج وقواعد المعرفة والمهارات والـ Partners وسياسة الأداة/MCP ووصول تنفيذ الرمز من خلال المنح.
+**تفعيله:** فعّل المصادقة في `data/user/settings/auth.json`، وأعد تشغيل `deeptutor start`، وسجّل أول مشرف على `/register`، ثم أضف المستخدمين من `/admin/users` وعيّن النماذج وقواعد المعرفة والمهارات والـ Partners وسياسة الأداة/MCP/تطبيق CLI ووصول تنفيذ الرمز من خلال المنح.
 
 > يبقى PocketBase تكاملاً لمستخدم واحد — أبقِ `integrations.pocketbase_url` فارغاً لعمليات النشر متعددة المستخدمين إلا إذا وصلت مخزن مستخدم خارجي.
 
@@ -568,7 +572,7 @@ deeptutor run deep_question "Quiz me on that survey" --session "$SID" --format j
 | الأمر | الوصف |
 |:---|:---|
 | `deeptutor init` | إنشاء أو تحديث `data/user/settings` لمساحة العمل الحالية |
-| `deeptutor start [--home PATH]` | تشغيل الخلفية + الواجهة الأمامية معاً |
+| `deeptutor start [--home PATH] [--dev]` | تشغيل الخلفية + الواجهة الأمامية معاً |
 | `deeptutor serve [--port PORT]` | تشغيل خلفية FastAPI فقط |
 | `deeptutor run <capability> <message>` | تشغيل دور قدرة واحدة (`chat` و`deep_solve` و`deep_question` و`deep_research` و`visualize` و`math_animator` و`mastery_path`)؛ أضف `--format json` لإخراج NDJSON |
 | `deeptutor chat` | REPL تفاعلي مع تحكمات القدرة والأداة وقاعدة المعرفة ودفتر الملاحظات والتاريخ |
@@ -581,7 +585,7 @@ deeptutor run deep_question "Quiz me on that survey" --session "$SID" --format j
 | `deeptutor book list/health/refresh-fingerprints` | فحص الكتب وتحديث بصمات المصادر |
 | `deeptutor plugin list/info` | فحص الأدوات والقدرات المسجلة |
 | `deeptutor config show` | طباعة ملخص التهيئة |
-| `deeptutor provider login <provider>` | مصادقة المزود (`openai-codex` OAuth login؛ `github-copilot` يتحقق من جلسة مصادقة Copilot موجودة) |
+| `deeptutor provider login <provider>` | مصادقة المزود (`openai-codex` OAuth login؛ `github-copilot` يتحقق من جلسة مصادقة Copilot موجودة؛ `codebuddy` يتحقق من مصادقة CodeBuddy SDK ويبدأ تسجيل الدخول عند الحاجة) |
 
 </details>
 
@@ -656,6 +660,22 @@ deeptutor skill install clawhub:git-release-notes@1.0.1
 
 </details>
 
+## 🤝 شركاء المصادر المفتوحة
+
+<p align="center">
+  <a href="https://github.com/VectifyAI/PageIndex" target="_blank">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../../assets/figs/partners/pageindex-mark-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="../../assets/figs/partners/pageindex-mark.svg">
+      <img src="../../assets/figs/partners/pageindex-mark.svg" alt="PageIndex" height="38">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  باستخدام الرمز: <b><code>DEEPTUTOR20</code></b> — احصل على خصم 20 دولاراً على أول <a href="https://developer.pageindex.ai/">اشتراك في PageIndex</a>!
+</p>
+
 ## 🌐 المجتمع
 
 ### 📮 التواصل
@@ -690,18 +710,6 @@ DeepTutor هو مشروع مفتوح المصدر تقوده [Bingxi Zhao](https
 
 <a href="https://github.com/HKUDS/DeepTutor/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=HKUDS/DeepTutor&max=999" alt="المساهمون" />
-</a>
-
-</div>
-
-<div align="center">
-
-<a href="https://www.star-history.com/#HKUDS/DeepTutor&type=timeline&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&legend=top-left" />
-    <img alt="مخطط تاريخ النجوم" src="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&legend=top-left" />
-  </picture>
 </a>
 
 </div>

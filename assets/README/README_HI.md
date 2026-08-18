@@ -17,6 +17,7 @@
 <p align="center">
   <a href="../../README.md"><img alt="English" height="40" src="https://img.shields.io/badge/English-CDCFD4"></a>&nbsp;
   <a href="README_CN.md"><img alt="简体中文" height="40" src="https://img.shields.io/badge/简体中文-CDCFD4"></a>&nbsp;
+  <a href="README_TW.md"><img alt="繁體中文" height="40" src="https://img.shields.io/badge/繁體中文-CDCFD4"></a>&nbsp;
   <a href="README_JA.md"><img alt="日本語" height="40" src="https://img.shields.io/badge/日本語-CDCFD4"></a>&nbsp;
   <a href="README_ES.md"><img alt="Español" height="40" src="https://img.shields.io/badge/Español-CDCFD4"></a>&nbsp;
   <a href="README_FR.md"><img alt="Français" height="40" src="https://img.shields.io/badge/Français-CDCFD4"></a>&nbsp;
@@ -63,7 +64,7 @@ DeepTutor एक agent-native learning workspace है जो tutoring, problem
 - **जुड़ा हुआ लर्निंग कॉन्टेक्स्ट** — Knowledge bases, books, Co-Writer drafts, notebooks, question banks, personas, और Memory सभी workflows में उपलब्ध रहते हैं, isolated tools में बंद रहने की बजाय।
 - **सब-एजेंट और Partners** — किसी भी turn से एक live coding CLI (Claude Code, Codex, Gemini, Kimi, opencode, या MiMo) या एक Partner से सलाह लें (या उनकी पिछली conversations import करें), और same brain पर persistent IM companions चलाएं।
 - **मल्टी-इंजन नॉलेज** — LlamaIndex, PageIndex, GraphRAG, LightRAG या linked Obsidian vault के साथ versioned RAG libraries, pluggable document parsing के साथ।
-- **एक्सटेंसिबल टूल्स और स्किल्स** — built-in tools, MCP servers, image / video / voice generation models, और EduHub से installable community skills।
+- **एक्सटेंसिबल टूल्स और स्किल्स** — built-in tools, MCP servers, CLI apps, image / video / voice generation models, और EduHub से installable community skills।
 - **इंस्पेक्टेबल मेमोरी** — L1 traces, L2 surface summaries, और L3 synthesis personalization को visible और editable बनाते हैं, एक Memory Graph के साथ जो हर दावे को उसके साक्ष्य तक trace करता है।
 
 ---
@@ -109,10 +110,10 @@ python -m pip install -e .
 ( cd web && npm ci --legacy-peer-deps )
 
 deeptutor init
-deeptutor start
+deeptutor start --dev
 ```
 
-Source installs local `web/` directory के विरुद्ध Next.js को dev mode में run करते हैं; बाकी सब (config layout, ports, `Ctrl+C` से stop) Option 1 से match करता है।
+`deeptutor start` local `web/` frontend को production के लिए एक बार build करता है और उसे reuse करता है; `--dev` Next.js को HMR के साथ run करता है। Config layout, ports, और `Ctrl+C` Option 1 से match करते हैं।
 
 <details>
 <summary><b>Conda environment</b> (<code>venv</code> की बजाय)</summary>
@@ -143,11 +144,11 @@ pip install -e ".[math-animator]"   # Manim addon; LaTeX/ffmpeg/system libs च�
 
 **Frontend dependencies बदलना:** `web/package-lock.json` refresh करने के लिए `npm install --legacy-peer-deps` run करें, फिर `web/package.json` और `web/package-lock.json` दोनों को commit करें।
 
-**Stuck dev server:** अगर `deeptutor start` एक existing frontend report करता है जो respond नहीं कर रहा, तो उस PID को stop करें जो वह print करता है। अगर कोई Next.js process actually नहीं चल रही, तो lock files stale हैं — उन्हें remove करें और retry करें:
+**Stuck dev server:** अगर `deeptutor start --dev` एक existing frontend report करता है जो respond नहीं कर रहा, तो उस PID को stop करें जो वह print करता है। अगर कोई Next.js process actually नहीं चल रही, तो lock files stale हैं — उन्हें remove करें और retry करें:
 
 ```bash
 rm -f web/.next/dev/lock web/.next/lock
-deeptutor start
+deeptutor start --dev
 ```
 
 </details>
@@ -286,7 +287,7 @@ Subprocess sandbox `data/user/settings/system.json` में `sandbox_allow_sub
 | `system.json` | Backend/frontend ports, public API base, CORS, SSL verification, attachment directory और upload/extraction limits |
 | `auth.json` | Optional auth toggle, username, password hash, token/cookie settings |
 | `integrations.json` | Optional PocketBase और sidecar integration settings |
-| `interface.json` | UI language / theme / sidebar preferences |
+| `interface.json` | UI और model output language / theme / sidebar preferences |
 | `main.yaml` | Runtime behavior defaults और path injection |
 | `agents.yaml` | Capability/tool temperature और token settings |
 
@@ -408,7 +409,7 @@ Book selected sources को एक interactive **living book** में बद
 <img src="../../assets/figs/web-1.4.6+/book/03-book-demo%20interactive%20module.png" alt="Book interactive widget block" width="31%">
 </p>
 
-हर chapter typed blocks में compile होती है — text, callouts, quizzes, flash cards, timelines, code, figures, interactive HTML, animations, concept graphs, deep dives, और user notes — और हर page का अपना Page Chat है। Blocks editable हैं: chapter rewrite किए बिना किसी block को insert, move, regenerate, या उसका type switch करें। Maintenance commands जैसे `deeptutor book health` और `deeptutor book refresh-fingerprints` तब detect करने में मदद करते हैं जब source knowledge compiled pages से drift हो गया हो।
+हर chapter typed blocks में compile होती है — text, callouts, quizzes, flash cards, timelines, code, figures, interactive HTML, animations, concept graphs, deep dives, और user notes — और हर page का अपना Page Chat है। Blocks editable हैं: किसी block को insert, move, regenerate, body rewrite करें, या chapter दोबारा किए बिना उसका type switch करें। Visited pages, bookmarks, और quiz attempts मिलकर एक completion score और weak chapters में roll up होते हैं; कोई भी book Markdown में export होती है। एक लंबी compile pause और resume होती है; `deeptutor book health` और `refresh-fingerprints` उस source knowledge को flag करते हैं जो drift हो गई हो।
 
 </details>
 
@@ -425,7 +426,7 @@ Knowledge bases RAG के पीछे document collections हैं — व�
 <img src="../../assets/figs/web-1.4.6+/knowledge/01-create%20knowledge%20base.png" alt="एक knowledge base बनाएं" width="900">
 </div>
 
-KB बनाते समय, आप either **नया create** करते हैं (documents upload करें और fresh index build करें) या **existing link** करते हैं (कहीं और बना index reuse करें, re-index के बिना in-place पढ़ें)। Re-indexing एक नई flat `version-N` directory लिखता है और prior ones रखता है, इसलिए एक working index rebuild के दौरान कभी destroy नहीं होता। एक single document को **error**-state base से भी remove किया जा सकता है — पूरी delete-and-rebuild के बिना parse होने में failed हुई file को drop करना। Document parsing — Text-only, MinerU, Docling, markitdown, या PyMuPDF4LLM — **Settings → Knowledge Base** में choose किया जाता है, local model downloads default रूप से off हैं। CLI lifecycle को `deeptutor kb list`, `info`, `create`, `add`, `search`, `set-default`, और `delete` से mirror करता है।
+KB बनाते समय, आप either **नया create** करते हैं (documents upload करें और fresh index build करें) या **existing link** करते हैं (कहीं और बना index reuse करें, re-index के बिना in-place पढ़ें)। Re-indexing एक नई flat `version-N` directory लिखता है और prior ones रखता है, इसलिए एक working index rebuild के दौरान कभी destroy नहीं होता। एक single document को **error**-state base से भी remove किया जा सकता है — पूरी delete-and-rebuild के बिना parse होने में failed हुई file को drop करना। Document parsing — Text-only, MinerU, Docling, markitdown, PyMuPDF4LLM, या LiteParse — **Settings → Knowledge Base** में choose किया जाता है, local model downloads default रूप से off हैं। Docling को **remote** mode में भी एक Docling Serve server के विरुद्ध चलाया जा सकता है (कोई local install या models की जरूरत नहीं), जिसे **Settings → Document Parsing** (`mode=remote`, एक server base URL, और एक optional API key) या `DOCLING_MODE` / `DOCLING_API_BASE_URL` / `DOCLING_API_TOKEN` environment variables के जरिए configure किया जाता है। CLI lifecycle को `deeptutor kb list`, `info`, `create`, `add`, `search`, `set-default`, और `delete` से mirror करता है।
 
 </details>
 
@@ -436,7 +437,7 @@ KB बनाते समय, आप either **नया create** करते �
 <img src="../../assets/figs/web-1.4.6+/learning-space/00-overview.png" alt="DeepTutor Learning Space hub" width="900">
 </div>
 
-Learning Space library और personalization layer है — वह जगह जहां persist होने वाली चीजें रहती हैं। **Conversations & Materials** में आपका chat history, notebooks, और एक question bank है (हर saved question आपका जवाब, reference answer, और एक explanation रखता है)। **Personalization** में mastery paths, personas (behavior presets जैसे *peer*, *research-assistant*, *teacher*), और skills (`SKILL.md` playbooks जिन्हें model on-demand पढ़ता है) हैं। यहां सब कुछ Chat, Partners, Co-Writer, और Book से reuse किया जा सकता है।
+Learning Space library और personalization layer है — वह जगह जहां persist होने वाली चीजें रहती हैं। **Conversations & Materials** में आपका chat history, notebooks, और एक question bank है (हर saved question आपका जवाब, reference answer, और एक explanation रखता है)। **Personalization** में mastery paths, personas (behavior presets जैसे *peer*, *research-assistant*, *teacher*), skills (`SKILL.md` playbooks जिन्हें model on-demand पढ़ता है), **MCP Services** — hosted MCP servers का एक curated store जिन्हें आप एक click में खुद के लिए install करते हैं, साथ ही कोई भी remote server जिसे आप URL से configure करते हैं — और **CLI Apps** हैं, [CLI-Anything](https://github.com/HKUDS/CLI-Anything) catalog से command-line tools जिन्हें chat agent directly call करता है, हर app की अपनी usage guide on-demand load होती है। यहां सब कुछ Chat, Partners, Co-Writer, और Book से reuse किया जा सकता है।
 
 <div align="center">
 <img src="../../assets/figs/web-1.4.6+/learning-space/07-%20download%20skills%20from%20eduhub.png" alt="EduHub से skills import करें" width="900">
@@ -470,7 +471,7 @@ Memory Graph पूरा pyramid दिखाता है — L3 synthesis cen
 <img src="../../assets/figs/web-1.4.6+/settings/00-setting%20overview.png" alt="DeepTutor settings hub" width="900">
 </div>
 
-Settings operational control plane है, एक live status strip (Backend, LLM, Embedding, Search) और प्रत्येक area के लिए एक card के साथ: **Appearance** (theme, UI language, code-block styling), **Network** (API base, ports, CORS), **Models** (LLM, Embedding, Search, Text-to-Speech, Speech-to-Text, Image Generation, Video Generation), **Knowledge Base** (document parsing engine), **Chat** (tools, MCP servers, per-capability parameters, attachment caps), **Partners & Agents** (वे subagents जिन्हें आप turn से consult कर सकते हैं), और **Memory** (consolidator के budgets)।
+Settings operational control plane है, एक live status strip (Backend health और पूरे process tree में resident memory) और प्रत्येक area के लिए एक card के साथ: **Appearance** (theme, UI और model output language, code-block styling), **Network** (API base, ports, CORS), **Models** (LLM, Embedding, Search, Text-to-Speech, Speech-to-Text, Image Generation, Video Generation), **Knowledge Base** (document parsing engine), **Chat** (tools, per-capability parameters, attachment caps), **Partners & Agents** (वे subagents जिन्हें आप turn से consult कर सकते हैं), और **Memory** (consolidator के budgets)।
 
 <div align="center">
 <img src="../../assets/figs/web-1.4.6+/settings/01-appearance%20settings.png" alt="DeepTutor appearance settings and themes" width="900">
@@ -478,7 +479,9 @@ Settings operational control plane है, एक live status strip (Backend, LL
 
 अधिकांश sections एक draft-and-apply flow उपयोग करते हैं, इसलिए आप provider को commit करने से पहले test कर सकते हैं। चार themes box में आते हैं — Default, Cream, Dark, और Glass। Project-root `.env` files जानबूझकर ignored हैं; runtime configuration `data/user/settings/*.json` के नीचे रहती है जब तक कि `DEEPTUTOR_HOME` या `deeptutor start --home` app को कहीं और point न करे।
 
-**OpenAI Codex OAuth (experimental).** **Models → LLM** के तहत **OpenAI Codex** चुनना API-key fields को एक browser sign-in से replace कर देता है जो आपके अपने ChatGPT plan के विरुद्ध चलता है, इसलिए किसी `OPENAI_API_KEY` की जरूरत नहीं। Tokens केवल `<user-root>/private/openai-codex/` में रहते हैं और DeepTutor कभी आपकी `~/.codex` CLI login को न तो पढ़ता है न ही modify करता है। Model list उस account के live catalog से आती है; sign in करना profile को publish करता है लेकिन यह active model तभी बनता है जब अभी तक कोई LLM configure न हो, इसलिए यह कभी भी आपकी जानकारी के बिना किसी deployment को repoint नहीं करता। क्योंकि एक token एक व्यक्ति के plan को authorize करता है, profile user grants के जरिए shareable नहीं है — हर account खुद के लिए sign in करता है।
+**OpenAI Codex OAuth (experimental).** **Models → LLM** के तहत **OpenAI Codex** चुनना API-key fields को एक browser sign-in से replace कर देता है जो आपके अपने ChatGPT plan के विरुद्ध चलता है, इसलिए किसी `OPENAI_API_KEY` की जरूरत नहीं। Tokens केवल `data/system/user-secrets/<owner>/private/openai-codex/` में रहते हैं — multi-container Compose deployment में, उस हर tree के बाहर जहां exec sandbox पहुंच सकता है — और DeepTutor कभी आपकी `~/.codex` CLI login को न तो पढ़ता है न ही modify करता है। Model list उस account के live catalog से आती है; sign in करना profile को publish करता है लेकिन यह active model तभी बनता है जब अभी तक कोई LLM configure न हो, इसलिए यह कभी भी आपकी जानकारी के बिना किसी deployment को repoint नहीं करता। क्योंकि एक token एक व्यक्ति के plan को authorize करता है, profile user grants के जरिए shareable नहीं है — हर account खुद के लिए sign in करता है, सामान्य users भी शामिल: उनका card **Models → LLM** के तहत रहता है, और resulting models, catalog, और sign-out उस account के लिए private रहते हैं।
+
+Default local Docker और Podman deployments separate loopback networks उपयोग करते हैं और sign-in के दौरान एक temporary bridge की जरूरत होती है। Docker, Compose, Podman, और teardown के exact commands के लिए [temporary local Codex OAuth bridge guide](../../CONTAINERIZATION.md#temporary-local-codex-oauth-bridge) follow करें।
 
 Remote deployment में, browser का `localhost` और server का `localhost` एक ही machine नहीं हैं, इसलिए सिर्फ एक ordinary reverse proxy browser के localhost callback को server तक नहीं पहुंचा सकता — callback bridge बनाने के लिए SSH tunnel जरूरी है। Tunnel पहले से published Web port तक पहुंचता है; Next.js केवल exact callback path को public callback broker पर rewrite करता है, और broker original OAuth operation पर route करने से पहले `state` validate करता है। Callback listener backend loopback पर ही रहता है, ports `1455` और `1457` publish नहीं होते, और यह path default Docker bridge network को support करता है।
 
@@ -510,12 +513,13 @@ data/
 ├── user/                    # Admin workspace + global settings
 ├── users/<uid>/             # Per-user scope: chat history, memory, notebooks, KBs
 ├── partners/<id>/workspace/ # Partner (synthetic-user) scope
-└── system/                  # auth/users.json · grants/<uid>.json · audit/usage.jsonl
+├── cli-apps/                # Installed CLI apps, mounted read-only into the sandbox
+└── system/                  # auth · grants · audit · user-secrets/<owner> (OAuth tokens)
 ```
 
 **पहला registered user admin बनता है** और model catalogs, provider credentials, shared knowledge bases, skills, और per-user grants own करता है। बाकी सभी को isolated workspace और redacted Settings page मिलती है — admin-assigned models, KBs, और skills scoped, read-only options के रूप में दिखाई देते हैं, कभी raw API keys के रूप में नहीं।
 
-**Enable करें:** `data/user/settings/auth.json` में auth on करें, `deeptutor start` restart करें, `/register` पर पहला admin register करें, फिर `/admin/users` से users add करें और grants के जरिए models, KBs, skills, Partners, tool/MCP policy, और code-execution access assign करें।
+**Enable करें:** `data/user/settings/auth.json` में auth on करें, `deeptutor start` restart करें, `/register` पर पहला admin register करें, फिर `/admin/users` से users add करें और grants के जरिए models, KBs, skills, Partners, tool/MCP/CLI-app policy, और code-execution access assign करें।
 
 > PocketBase single-user integration रहता है — multi-user deployments के लिए `integrations.pocketbase_url` blank रखें जब तक आपने external user store wire up नहीं किया हो।
 
@@ -568,7 +572,7 @@ Repo एक root [`SKILL.md`](../../SKILL.md) ship करता है — ए�
 | Command | विवरण |
 |:---|:---|
 | `deeptutor init` | Current workspace के लिए `data/user/settings` create या update करें |
-| `deeptutor start [--home PATH]` | Backend + frontend को एक साथ launch करें |
+| `deeptutor start [--home PATH] [--dev]` | Backend + frontend को एक साथ launch करें |
 | `deeptutor serve [--port PORT]` | केवल FastAPI backend start करें |
 | `deeptutor run <capability> <message>` | एक single capability turn run करें (`chat`, `deep_solve`, `deep_question`, `deep_research`, `visualize`, `math_animator`, `mastery_path`); NDJSON output के लिए `--format json` add करें |
 | `deeptutor chat` | capability, tool, KB, notebook, और history controls के साथ interactive REPL |
@@ -581,7 +585,7 @@ Repo एक root [`SKILL.md`](../../SKILL.md) ship करता है — ए�
 | `deeptutor book list/health/refresh-fingerprints` | Books inspect करें और source fingerprints refresh करें |
 | `deeptutor plugin list/info` | Registered tools और capabilities inspect करें |
 | `deeptutor config show` | Configuration summary print करें |
-| `deeptutor provider login <provider>` | Provider auth (`openai-codex` OAuth login; `github-copilot` existing Copilot auth session validate करता है) |
+| `deeptutor provider login <provider>` | Provider auth (`openai-codex` OAuth login; `github-copilot` existing Copilot auth session validate करता है; `codebuddy` CodeBuddy SDK auth validate करता है और ज़रूरत पड़ने पर login शुरू करता है) |
 
 </details>
 
@@ -656,6 +660,22 @@ deeptutor skill install clawhub:git-release-notes@1.0.1
 
 </details>
 
+## 🤝 ओपन सोर्स पार्टनर्स
+
+<p align="center">
+  <a href="https://github.com/VectifyAI/PageIndex" target="_blank">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../../assets/figs/partners/pageindex-mark-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="../../assets/figs/partners/pageindex-mark.svg">
+      <img src="../../assets/figs/partners/pageindex-mark.svg" alt="PageIndex" height="38">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  कोड का उपयोग करें: <b><code>DEEPTUTOR20</code></b> — अपनी पहली <a href="https://developer.pageindex.ai/">PageIndex subscription</a> पर $20 की छूट पाएं!
+</p>
+
 ## 🌐 समुदाय
 
 ### 📮 संपर्क
@@ -690,18 +710,6 @@ DeepTutor outstanding open-source projects के कंधों पर खड�
 
 <a href="https://github.com/HKUDS/DeepTutor/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=HKUDS/DeepTutor&max=999" alt="Contributors" />
-</a>
-
-</div>
-
-<div align="center">
-
-<a href="https://www.star-history.com/#HKUDS/DeepTutor&type=timeline&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&legend=top-left" />
-  </picture>
 </a>
 
 </div>

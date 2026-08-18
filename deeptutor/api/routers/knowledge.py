@@ -28,17 +28,18 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from deeptutor.api.utils.progress_broadcaster import ProgressBroadcaster
 from deeptutor.api.utils.task_id_manager import TaskIDManager
 from deeptutor.api.utils.task_log_stream import capture_task_logs, get_task_stream_manager
 from deeptutor.knowledge.add_documents import DocumentAdder, remove_raw_document
 from deeptutor.knowledge.initializer import KnowledgeBaseInitializer
-from deeptutor.knowledge.kb_types import is_connected_kb
+from deeptutor.knowledge.kb_types import is_connected_kb, supports_local_raw_files
 from deeptutor.knowledge.manager import KnowledgeBaseManager
 from deeptutor.knowledge.naming import validate_knowledge_base_name
 from deeptutor.knowledge.progress_tracker import ProgressStage, ProgressTracker
+from deeptutor.logging import PROCESS_LOG_PRIVATE_ATTR
 from deeptutor.multi_user.context import get_current_user
 from deeptutor.multi_user.knowledge_access import (
     assert_writable,
@@ -65,6 +66,17 @@ from deeptutor.services.rag.linked_kb import (
     LINKABLE_PROVIDERS,
     assert_path_allowed,
     probe_linked_folder,
+)
+from deeptutor.services.rag.pipelines.ima.client import (
+    ImaAPIError,
+    ImaAuthError,
+    ImaClient,
+    ImaRateLimitError,
+)
+from deeptutor.services.rag.pipelines.ima.config import (
+    ImaConfig,
+    ImaCredentials,
+    get_account_credentials,
 )
 from deeptutor.utils.document_extractor import (
     MAX_EXTRACTED_CHARS_PER_DOC,
@@ -458,6 +470,34 @@ def _save_uploaded_files(
     return uploaded_files, uploaded_file_paths
 
 
+async def _save_uploaded_files_off_loop(
+    files: list[UploadFile],
+    target_dir: Path,
+    allowed_extensions: set[str] | None = None,
+    kb_name: str | None = None,
+    rel_paths: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """:func:`_save_uploaded_files` on a worker thread.
+
+    That function blocks end to end — a chunked write of every uploaded byte,
+    zip extraction for archive members, and (when PocketBase is enabled) one
+    synchronous HTTP upload per file. Called inline from an ``async def``
+    route it held the event loop for the whole batch, so every other request
+    — chat WebSockets included — stalled until the upload finished (#777).
+
+    Safe to hand to a thread: it only touches ``UploadFile.file``, the plain
+    ``SpooledTemporaryFile`` underneath, never the async ``UploadFile`` API.
+    """
+    return await asyncio.to_thread(
+        _save_uploaded_files,
+        files,
+        target_dir,
+        allowed_extensions=allowed_extensions,
+        kb_name=kb_name,
+        rel_paths=rel_paths,
+    )
+
+
 def _get_upload_file_size(file: UploadFile) -> int | None:
     """Best-effort byte size detection without consuming the uploaded stream."""
     try:
@@ -559,6 +599,28 @@ def _task_log(task_id: str, message: str, level: str = "info") -> None:
         logger.info(f"[{task_id}] {message}")
 
 
+def _server_task_trace(task_id: str, trace: str) -> None:
+    """Keep a traceback in server logs while excluding it from browser streams."""
+    logger.error(
+        "[%s] Stack trace:\n%s",
+        task_id,
+        trace,
+        extra={PROCESS_LOG_PRIVATE_ATTR: True},
+    )
+
+
+def _exception_failure_metadata(exc: Exception) -> dict:
+    """Extract stable, user-facing failure metadata from a typed exception."""
+    metadata = {}
+    error_code = getattr(exc, "code", None)
+    retryable = getattr(exc, "retryable", None)
+    if isinstance(error_code, str) and error_code:
+        metadata["error_code"] = error_code
+    if isinstance(retryable, bool):
+        metadata["retryable"] = retryable
+    return metadata
+
+
 def _validate_registered_provider(raw_provider: str | None) -> str:
     """Resolve a requested provider to a known engine.
 
@@ -600,6 +662,24 @@ def _assert_provider_ready(provider: str) -> None:
                     "`pip install 'deeptutor[graphrag]'` on the server before "
                     "creating a GraphRAG knowledge base."
                 ),
+            )
+
+        from deeptutor.services.rag.preflight import engine_preflight
+
+        report = engine_preflight(provider)
+        failed_checks = [
+            check
+            for check in report.get("checks", [])
+            if not check.get("optional") and not check.get("ok")
+        ]
+        if failed_checks:
+            failure_details = "; ".join(
+                str(check.get("detail") or check.get("label") or "Requirement not met")
+                for check in failed_checks
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=f"GraphRAG preflight failed: {failure_details}",
             )
 
     if provider == LIGHTRAG_PROVIDER:
@@ -674,8 +754,8 @@ def _assert_not_connected_kb(kb_name: str, kb_entry: dict) -> None:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Knowledge base '{kb_name}' is connected to an external folder and is "
-                "read-only. Uploads and re-indexing are not available for it."
+                f"Knowledge base '{kb_name}' is connected to an external resource and is "
+                "read-only. Local file operations and re-indexing are not available for it."
             ),
         )
 
@@ -785,9 +865,10 @@ async def run_initialization_task(initializer: KnowledgeBaseInitializer, task_id
 
             error_msg = str(e)
             trace = _tb.format_exc()
+            failure_metadata = _exception_failure_metadata(e)
 
             _task_log(task_id, f"Initialization failed: {error_msg}", level="error")
-            _task_log(task_id, f"Stack trace:\n{trace}", level="error")
+            _server_task_trace(task_id, trace)
 
             task_manager.update_task_status(task_id, "error", error=error_msg)
 
@@ -800,6 +881,7 @@ async def run_initialization_task(initializer: KnowledgeBaseInitializer, task_id
                     "message": f"Initialization failed: {error_msg}",
                     "percent": 0,
                     "error": error_msg,
+                    **failure_metadata,
                     "task_id": task_id,
                     "timestamp": datetime.now().isoformat(),
                 },
@@ -807,9 +889,12 @@ async def run_initialization_task(initializer: KnowledgeBaseInitializer, task_id
 
             if initializer.progress_tracker:
                 initializer.progress_tracker.update(
-                    ProgressStage.ERROR, f"Initialization failed: {error_msg}", error=error_msg
+                    ProgressStage.ERROR,
+                    f"Initialization failed: {error_msg}",
+                    error=error_msg,
+                    **failure_metadata,
                 )
-            task_stream_manager.emit_failed(task_id, error_msg, details=trace)
+            task_stream_manager.emit_failed(task_id, error_msg, **failure_metadata)
 
 
 async def run_upload_processing_task(
@@ -853,7 +938,14 @@ async def run_upload_processing_task(
                 rag_provider=rag_provider,
             )
 
-            staged_files = adder.add_documents(uploaded_file_paths, allow_duplicates=False)
+            # Staging blocks: a full-content hash per file, plus a copy for
+            # anything not already under raw/. A BackgroundTasks entry declared
+            # ``async def`` is awaited ON the event loop — starlette only routes
+            # *sync* callables to its threadpool — so doing this inline stalled
+            # every other request for the length of the batch (#777).
+            staged_files = await asyncio.to_thread(
+                adder.add_documents, uploaded_file_paths, allow_duplicates=False
+            )
             _task_log(task_id, f"Staged {len(staged_files)} new file(s)")
 
             if not staged_files:
@@ -944,15 +1036,19 @@ async def run_upload_processing_task(
 
             error_msg = f"Upload processing failed (KB '{kb_name}'): {e}"
             trace = _tb.format_exc()
+            failure_metadata = _exception_failure_metadata(e)
             _task_log(task_id, error_msg, level="error")
-            _task_log(task_id, f"Stack trace:\n{trace}", level="error")
+            _server_task_trace(task_id, trace)
 
             task_manager.update_task_status(task_id, "error", error=error_msg)
 
             progress_tracker.update(
-                ProgressStage.ERROR, f"Processing failed: {error_msg}", error=error_msg
+                ProgressStage.ERROR,
+                f"Processing failed: {error_msg}",
+                error=error_msg,
+                **failure_metadata,
             )
-            task_stream_manager.emit_failed(task_id, error_msg, details=trace)
+            task_stream_manager.emit_failed(task_id, error_msg, **failure_metadata)
 
 
 @router.get("/health")
@@ -1091,6 +1187,62 @@ async def update_pageindex_pipeline_config(payload: PageIndexConfigUpdate):
         return _pageindex_config_payload()
     except Exception as e:
         logger.error(f"Error updating PageIndex config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ImaConfigUpdate(BaseModel):
+    # Same tri-state as PageIndex for the secret half of the pair: omit/None
+    # keeps the stored key, "" clears it, any other value replaces it. The
+    # Client ID is not a secret and round-trips in the clear.
+    client_id: str | None = None
+    api_key: str | None = None
+
+
+def _ima_config_payload() -> dict:
+    """Account-level IMA credential state for the UI, with the key redacted."""
+    from deeptutor.services.config import get_runtime_settings_service
+
+    settings = get_runtime_settings_service().load_ima()
+    client_id = str(settings.get("client_id") or "")
+    api_key_set = bool(settings.get("api_key"))
+    return {
+        "client_id": client_id,
+        "api_key_set": api_key_set,
+        "configured": bool(client_id) and api_key_set,
+    }
+
+
+@router.get("/rag-pipelines/ima/config")
+async def get_ima_pipeline_config():
+    """Read the account-level IMA credentials (key redacted to a boolean)."""
+    try:
+        return _ima_config_payload()
+    except Exception as e:
+        logger.error(f"Error reading IMA config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/rag-pipelines/ima/config")
+async def update_ima_pipeline_config(payload: ImaConfigUpdate):
+    """Persist the account-level IMA Client ID / API key."""
+    try:
+        from deeptutor.services.config import get_runtime_settings_service
+
+        service = get_runtime_settings_service()
+        current = service.load_ima(include_process_overrides=False)
+
+        client_id = current.get("client_id", "")
+        if payload.client_id is not None:
+            client_id = payload.client_id.strip()
+
+        api_key = current.get("api_key", "")
+        if payload.api_key is not None:
+            api_key = payload.api_key.strip()
+
+        service.save_ima({"client_id": client_id, "api_key": api_key})
+        return _ima_config_payload()
+    except Exception as e:
+        logger.error(f"Error updating IMA config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1280,6 +1432,37 @@ async def get_rag_model_options(kinds: str = "llm,embedding"):
     except Exception as e:
         logger.error(f"Error reading model options: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class GraphRagModelCompatibilityRequest(BaseModel):
+    """Configured chat-model candidate to test without activating it."""
+
+    profile_id: str
+    model_id: str
+
+
+async def _probe_graphrag_model_compatibility(profile_id: str, model_id: str) -> dict:
+    """Resolve and probe a configured GraphRAG chat-model candidate."""
+    from deeptutor.services.rag.pipelines.graphrag.compatibility import (
+        probe_configured_completion_model,
+    )
+
+    return await probe_configured_completion_model(profile_id, model_id)
+
+
+@router.post("/rag-pipelines/graphrag/model-compatibility")
+async def test_graphrag_model_compatibility(payload: GraphRagModelCompatibilityRequest):
+    """Test GraphRAG structured output without changing the active chat model."""
+    try:
+        return await _probe_graphrag_model_compatibility(payload.profile_id, payload.model_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Unexpected error testing GraphRAG model compatibility")
+        raise HTTPException(
+            status_code=500,
+            detail="GraphRAG compatibility could not be tested because of an internal error.",
+        ) from e
 
 
 class ActiveModelUpdate(BaseModel):
@@ -1657,16 +1840,80 @@ async def connect_lightrag_server_route(payload: ConnectLightRagServerRequest):
     }
 
 
+class ListImaRequest(BaseModel):
+    # Empty means "use the account-level credentials from the engine settings",
+    # so the connect flow never has to re-send what is already stored.
+    client_id: str = ""
+    api_key: str = ""
+    cursor: str = ""
+    limit: int = Field(default=20, ge=1, le=20)
+
+
+class ImaKnowledgeBaseSummary(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+
+
+class ListImaResponse(BaseModel):
+    knowledge_bases: list[ImaKnowledgeBaseSummary]
+    next_cursor: str
+    is_end: bool
+
+
+def _resolve_ima_credentials(client_id: str, api_key: str) -> ImaCredentials:
+    """A request's credentials, falling back to the account-level pair.
+
+    A request that supplies only one half is not silently completed from the
+    account pair: mixing two accounts' halves would fail at IMA with a confusing
+    verdict.
+    """
+    supplied = ImaCredentials(client_id=(client_id or "").strip(), api_key=(api_key or "").strip())
+    if supplied.client_id or supplied.api_key:
+        return supplied
+    return get_account_credentials()
+
+
+@router.post("/list-ima", response_model=ListImaResponse)
+async def list_ima_route(payload: ListImaRequest):
+    """List IMA knowledge bases without storing or echoing credentials."""
+    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
+    if not credentials.complete:
+        raise HTTPException(status_code=400, detail="Client ID and API key are required.")
+
+    client = ImaClient(
+        ImaConfig(
+            client_id=credentials.client_id,
+            api_key=credentials.api_key,
+            knowledge_base_id="",
+        )
+    )
+    try:
+        return await client.search_knowledge_bases(
+            query="",
+            cursor=payload.cursor.strip(),
+            limit=payload.limit,
+        )
+    except ImaAuthError:
+        raise HTTPException(status_code=401, detail="IMA rejected the supplied credentials.")
+    except ImaRateLimitError:
+        raise HTTPException(status_code=429, detail="IMA rate limit reached. Try again shortly.")
+    except ImaAPIError:
+        raise HTTPException(status_code=502, detail="IMA returned an invalid response.")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach Tencent IMA.")
+
+
 class ProbeImaRequest(BaseModel):
-    client_id: str
-    api_key: str
+    client_id: str = ""
+    api_key: str = ""
     knowledge_base_id: str
 
 
 class ConnectImaRequest(BaseModel):
     name: str
-    client_id: str
-    api_key: str
+    client_id: str = ""
+    api_key: str = ""
     knowledge_base_id: str
 
 
@@ -1680,9 +1927,10 @@ async def probe_ima_route(payload: ProbeImaRequest):
     """
     from deeptutor.services.rag.pipelines.ima.probe import probe_knowledge_base
 
+    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
     result = await probe_knowledge_base(
-        payload.client_id,
-        payload.api_key,
+        credentials.client_id,
+        credentials.api_key,
         payload.knowledge_base_id,
     )
     return result.to_dict()
@@ -1695,6 +1943,9 @@ async def connect_ima_route(payload: ConnectImaRequest):
     Re-probes server-side (never trusts the client's verdict), then registers a
     pointer (``type: ima``). Retrieval is offloaded to IMA's ``search_knowledge``
     OpenAPI — no copy, no local index.
+
+    Credentials the request omits come from the account-level settings and are
+    *not* copied onto the KB, so rotating them there keeps this KB working.
     """
     from deeptutor.services.rag.pipelines.ima.probe import probe_knowledge_base
 
@@ -1702,9 +1953,14 @@ async def connect_ima_route(payload: ConnectImaRequest):
     if not name:
         raise HTTPException(status_code=400, detail="Knowledge base name is required.")
 
+    overrides = ImaCredentials(
+        client_id=payload.client_id.strip(),
+        api_key=payload.api_key.strip(),
+    )
+    credentials = _resolve_ima_credentials(payload.client_id, payload.api_key)
     result = await probe_knowledge_base(
-        payload.client_id,
-        payload.api_key,
+        credentials.client_id,
+        credentials.api_key,
         payload.knowledge_base_id,
     )
     if not result.ok:
@@ -1717,8 +1973,8 @@ async def connect_ima_route(payload: ConnectImaRequest):
         manager = get_kb_manager()
         entry = manager.register_ima_kb(
             name,
-            payload.client_id,
-            payload.api_key,
+            overrides.client_id,
+            overrides.api_key,
             payload.knowledge_base_id,
             description=result.description or "",
         )
@@ -1726,9 +1982,11 @@ async def connect_ima_route(payload: ConnectImaRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error connecting IMA knowledge base: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        # Never echo or log an upstream message from this credential-bearing
+        # flow. The exception class is enough for server-side diagnosis.
+        logger.error("Error connecting IMA knowledge base (%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Could not connect the IMA knowledge base.")
 
     return {
         "status": "connected",
@@ -1744,6 +2002,7 @@ async def list_knowledge_bases():
     try:
         manager = get_kb_manager()
         kb_names = manager.list_knowledge_bases()
+        default_name = manager.get_default(available_names=kb_names)
         access_items = list_visible_kb_access()
         access_by_id = {str(item.get("id") or ""): item for item in access_items}
         own_prefix = "admin:kb:" if get_current_user().is_admin else "user:kb:"
@@ -1755,7 +2014,11 @@ async def list_knowledge_bases():
 
         for name in kb_names:
             try:
-                info = manager.get_info(name)
+                info = manager.get_info(
+                    name,
+                    refresh_config=False,
+                    default_name=default_name,
+                )
                 logger.debug(f"Successfully got info for KB '{name}': {info.get('statistics', {})}")
                 result.append(
                     KnowledgeBaseInfo(
@@ -1792,7 +2055,7 @@ async def list_knowledge_bases():
                             KnowledgeBaseInfo(
                                 id=f"{own_prefix}{name}",
                                 name=name,
-                                is_default=name == manager.get_default(),
+                                is_default=name == default_name,
                                 statistics={
                                     "raw_documents": 0,
                                     "images": 0,
@@ -1821,6 +2084,7 @@ async def list_knowledge_bases():
 
         logger.debug(f"Returning {len(result)} knowledge bases")
         if not get_current_user().is_admin:
+            assigned_snapshots: dict[str, str | None] = {}
             own_ids = {item.id for item in result}
             for access in access_items:
                 if access.get("source") != "admin" or access.get("id") in own_ids:
@@ -1847,7 +2111,17 @@ async def list_knowledge_bases():
                 resource = resolve_kb(str(access.get("id") or access.get("name") or ""))
                 assigned_manager = manager_for_resource(resource)
                 try:
-                    info = assigned_manager.get_info(resource.name)
+                    manager_key = str(assigned_manager.base_dir.resolve())
+                    if manager_key not in assigned_snapshots:
+                        assigned_names = assigned_manager.list_knowledge_bases()
+                        assigned_snapshots[manager_key] = assigned_manager.get_default(
+                            available_names=assigned_names
+                        )
+                    info = assigned_manager.get_info(
+                        resource.name,
+                        refresh_config=False,
+                        default_name=assigned_snapshots[manager_key],
+                    )
                     result.append(
                         KnowledgeBaseInfo(
                             id=resource.id,
@@ -1922,21 +2196,42 @@ async def get_knowledge_base_details(kb_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _resolve_kb_raw_dir(kb_name: str) -> Path:
-    """Resolve the raw/ directory for a KB, validating that it exists."""
+def _resolve_kb_raw_dir(kb_name: str, *, allow_unsupported: bool = False) -> Path | None:
+    """Resolve a KB's managed ``raw/`` directory without inventing one.
+
+    Connected KBs are external-resource pointers and intentionally have no
+    DeepTutor-managed raw directory.  File listing treats that as an empty
+    collection for backwards compatibility; endpoints that require a local
+    file receive an explicit conflict response.
+    """
     manager = _overridden_kb_manager()
     if manager is not None:
         resolved_name = _resolve_registered_kb_name(manager, kb_name)
-        return manager.get_knowledge_base_path(resolved_name) / "raw"
-    resource = resolve_kb(kb_name)
-    manager = manager_for_resource(resource)
-    kb_path = manager.get_knowledge_base_path(resource.name)
+    else:
+        resource = resolve_kb(kb_name)
+        manager = manager_for_resource(resource)
+        resolved_name = resource.name
+
+    kb_entry = _load_kb_entry_or_404(manager, resolved_name)
+    if not supports_local_raw_files(kb_entry):
+        if allow_unsupported:
+            return None
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Knowledge base '{resolved_name}' is connected to an external resource "
+                "and has no local files."
+            ),
+        )
+
+    kb_path = manager.get_knowledge_base_path(resolved_name)
     return kb_path / "raw"
 
 
 def _resolve_kb_raw_file_or_404(kb_name: str, filename: str) -> Path:
     """Resolve a raw KB file while preventing traversal outside raw/."""
     raw_dir = _resolve_kb_raw_dir(kb_name)
+    assert raw_dir is not None  # allow_unsupported=False guarantees a path
     if not raw_dir.exists():
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -1963,7 +2258,9 @@ async def list_kb_raw_files(kb_name: str):
     before it holds any files. Folders are purely organizational and have no
     effect on indexing or retrieval.
     """
-    raw_dir = _resolve_kb_raw_dir(kb_name)
+    raw_dir = _resolve_kb_raw_dir(kb_name, allow_unsupported=True)
+    if raw_dir is None:
+        return {"files": []}
     if not raw_dir.exists() or not raw_dir.is_dir():
         return {"files": []}
 
@@ -2150,16 +2447,15 @@ async def upload_files(
     """Upload files to a knowledge base and process them in background."""
     try:
         manager, kb_name, kb_base_dir = _writable_kb(kb_name)
-        kb_path = manager.get_knowledge_base_path(kb_name)
-        raw_dir = kb_path / "raw"
-        raw_dir.mkdir(parents=True, exist_ok=True)
-
         requested_provider = None
         if rag_provider is not None and str(rag_provider).strip():
             requested_provider = _validate_registered_provider(rag_provider)
 
         kb_entry = _load_kb_entry_or_404(manager, kb_name)
         _assert_kb_writable_or_409(kb_name, kb_entry)
+        kb_path = manager.get_knowledge_base_path(kb_name)
+        raw_dir = kb_path / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
         kb_provider = _validate_registered_provider(
             kb_entry.get("rag_provider") or DEFAULT_PROVIDER
         )
@@ -2179,7 +2475,7 @@ async def upload_files(
         # archive itself is never indexed (``safe_extract_zip`` skips ``.zip``).
         upload_extensions = allowed_extensions | {".zip"}
         _validate_upload_batch(files, allowed_extensions=upload_extensions, rel_paths=rel_paths)
-        uploaded_files, uploaded_file_paths = _save_uploaded_files(
+        uploaded_files, uploaded_file_paths = await _save_uploaded_files_off_loop(
             files, raw_dir, allowed_extensions=upload_extensions, rel_paths=rel_paths
         )
         task_id = _build_unique_task_id("kb_upload", kb_name)
@@ -2286,7 +2582,7 @@ async def create_knowledge_base(
             logger.warning(f"KB {name} not found in config, registering manually")
             initializer._register_to_config()
 
-        uploaded_files, _ = _save_uploaded_files(
+        uploaded_files, _ = await _save_uploaded_files_off_loop(
             files, initializer.raw_dir, allowed_extensions=allowed_extensions, rel_paths=rel_paths
         )
 
@@ -2443,18 +2739,20 @@ async def run_reindex_task(kb_name: str, base_dir: str, task_id: str, signature_
 
             error_msg = str(e)
             trace = _tb.format_exc()
+            failure_metadata = _exception_failure_metadata(e)
             _task_log(task_id, f"Re-index failed: {error_msg}", level="error")
-            _task_log(task_id, f"Stack trace:\n{trace}", level="error")
+            _server_task_trace(task_id, trace)
             task_manager.update_task_status(task_id, "error", error=error_msg)
             try:
                 ProgressTracker(kb_name, Path(base_dir)).update(
                     ProgressStage.ERROR,
                     f"Re-index failed: {error_msg}",
                     error=error_msg,
+                    **failure_metadata,
                 )
             except Exception:
                 pass
-            task_stream_manager.emit_failed(task_id, error_msg, details=trace)
+            task_stream_manager.emit_failed(task_id, error_msg, **failure_metadata)
 
 
 @router.post("/{kb_name}/reindex")

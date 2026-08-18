@@ -131,6 +131,13 @@ class TestOrchestratorRouting:
         error_events = [e for e in events if e.type == StreamEventType.ERROR]
         assert len(error_events) == 1
         assert "Unknown capability" in error_events[0].content
+        assert error_events[0].metadata == {
+            "turn_terminal": True,
+            "status": "failed",
+        }
+        done_events = [e for e in events if e.type == StreamEventType.DONE]
+        assert len(done_events) == 1
+        assert done_events[0].metadata["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -155,9 +162,42 @@ class TestOrchestratorErrorHandling:
         error_events = [e for e in events if e.type == StreamEventType.ERROR]
         assert len(error_events) == 1
         assert "intentional failure" in error_events[0].content
+        assert error_events[0].metadata == {
+            "turn_terminal": True,
+            "status": "failed",
+        }
 
         done_events = [e for e in events if e.type == StreamEventType.DONE]
         assert len(done_events) == 1
+        assert done_events[0].metadata["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_capability_exception_preserves_safe_error_metadata(self) -> None:
+        class _StructuredError(RuntimeError):
+            error_code = "provider_transport"
+            retryable = True
+            partial_response = False
+
+        class _StructuredFailingCapability:
+            async def run(self, _context, _bus) -> None:
+                raise _StructuredError("Unable to reach the model provider. Please retry.")
+
+        orch = _make_orchestrator({"fail": _StructuredFailingCapability()})
+        events = [
+            event
+            async for event in orch.handle(
+                UnifiedContext(user_message="boom", active_capability="fail")
+            )
+        ]
+
+        error = next(event for event in events if event.type == StreamEventType.ERROR)
+        assert error.metadata == {
+            "turn_terminal": True,
+            "status": "failed",
+            "error_code": "provider_transport",
+            "retryable": True,
+            "partial_response": False,
+        }
 
 
 # ---------------------------------------------------------------------------
