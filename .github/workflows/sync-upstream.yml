@@ -18,7 +18,7 @@ jobs:
         run: |
           curl -X POST "${{ secrets.GOOGLE_CHAT_WEBHOOK }}" \
             -H "Content-Type: application/json" \
-            -d '{"text": "🔄 *DeepTutor CI/CD* — New merge on main detected. Build starting..."}'
+            -d '{"text": "🔄 *Encore-DeepTutor CI/CD* — New merge on main detected. Build starting..."}'
 
       - name: Checkout fork
         uses: actions/checkout@v4
@@ -83,7 +83,7 @@ jobs:
         run: |
           curl -X POST "${{ secrets.GOOGLE_CHAT_WEBHOOK }}" \
             -H "Content-Type: application/json" \
-            -d '{"text": "🚀 *Deploying to Staging...* https://encore-staging.apprentus.dev"}'
+            -d '{"text": "🚀 *Deploying to Staging...*"}'
 
       - name: Deploy to staging
         run: |
