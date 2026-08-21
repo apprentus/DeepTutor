@@ -14,6 +14,12 @@ jobs:
       packages: write
 
     steps:
+      - name: Notify start
+        run: |
+          curl -s -X POST "${{ secrets.GOOGLE_CHAT_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "🔄 *[CI/CD]* New merge on main — build starting..."}'
+
       - name: Checkout fork
         uses: actions/checkout@v4
         with:
@@ -43,6 +49,20 @@ jobs:
             ghcr.io/apprentus/deeptutor:latest
             ghcr.io/apprentus/deeptutor:${{ steps.version.outputs.version }}
 
+      - name: Notify build done
+        if: success()
+        run: |
+          curl -s -X POST "${{ secrets.GOOGLE_CHAT_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "✅ *[CI/CD]* Build complete — image v${{ steps.version.outputs.version }} ready."}'
+
+      - name: Notify build failure
+        if: failure()
+        run: |
+          curl -s -X POST "${{ secrets.GOOGLE_CHAT_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "❌ *[CI/CD]* Build FAILED! Check GitHub Actions."}'
+
   deploy-staging:
     needs: build
     runs-on: [self-hosted, encore-staging]
@@ -55,4 +75,28 @@ jobs:
           docker pull ghcr.io/apprentus/deeptutor:latest
           sed -i "s|ghcr.io/apprentus/deeptutor:.*|ghcr.io/apprentus/deeptutor:latest|" docker-compose.ghcr.yml
           docker compose -f docker-compose.ghcr.yml up -d
-          echo "Staging deployed!"
+
+      - name: Clean up old Docker images
+        if: always()
+        run: |
+          docker images ghcr.io/apprentus/deeptutor --format "{{.ID}} {{.CreatedAt}}" | \
+            sort -k2 -r | \
+            awk '{print $1}' | \
+            tail -n +3 | \
+            xargs -r docker rmi -f 2>/dev/null || true
+          docker image prune -f
+          docker builder prune -f --filter "until=24h" || true
+
+      - name: Notify staging done
+        if: success()
+        run: |
+          curl -s -X POST "${{ secrets.GOOGLE_CHAT_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "✅ *[STAGING]* Deployed and ready for testing — https://encore-staging.apprentus.dev"}'
+
+      - name: Notify staging failure
+        if: failure()
+        run: |
+          curl -s -X POST "${{ secrets.GOOGLE_CHAT_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "❌ *[STAGING]* Deploy FAILED! Check GitHub Actions."}'
