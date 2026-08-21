@@ -46,6 +46,10 @@ import {
   navVisibleUnderPolicy,
 } from "@/components/sidebar/nav-entries";
 import { useAuthStatus } from "@/hooks/useAuthStatus";
+import {
+  isEncoreAdminOnlyNavHref,
+  showEncoreAdminNav,
+} from "@/lib/encore-admin-nav";
 import { Tooltip } from "@/shared/ui/Tooltip";
 import { useDragSort, type DragSort } from "@/hooks/useDragSort";
 import { placeMenu, type FloatingMenuPosition } from "@/lib/floating-menu";
@@ -111,13 +115,21 @@ export function SidebarNav({
     setMoreExpanded(browserStorage.readRaw("local", MORE_EXPANDED_KEY) === "1");
   }, []);
 
-  const { learningPolicy } = useAuthStatus();
+  const { learningPolicy, enabled, isAdmin, loading: authLoading } =
+    useAuthStatus();
+  const showAdminNav = showEncoreAdminNav({
+    loading: authLoading,
+    enabled,
+    isAdmin,
+  });
   const moduleHrefs = useMemo(
     () =>
-      MODULE_NAV_HREFS.filter((href) =>
-        navVisibleUnderPolicy(href, learningPolicy?.allowedSurfaces ?? null),
+      MODULE_NAV_HREFS.filter(
+        (href) =>
+          (showAdminNav || !isEncoreAdminOnlyNavHref(href)) &&
+          navVisibleUnderPolicy(href, learningPolicy?.allowedSurfaces ?? null),
       ),
-    [learningPolicy],
+    [learningPolicy, showAdminNav],
   );
   const resolved = useMemo(
     () => resolveNavLayout(moduleHrefs, layout, DEFAULT_COLLAPSED_NAV),

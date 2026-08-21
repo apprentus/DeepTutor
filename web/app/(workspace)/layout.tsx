@@ -1,6 +1,7 @@
 import TaskBoardRuntime from "@/components/tasks/TaskBoardRuntime";
 import WorkspaceSidebar from "@/components/sidebar/WorkspaceSidebar";
 import AppShell from "@/components/layout/AppShell";
+import { AdminOnlyRouteGuard } from "@/components/access/AdminOnlyRouteGuard";
 import { CapabilityAccessProvider } from "@/components/access/CapabilityAccessContext";
 import CapabilityGate from "@/components/access/CapabilityGate";
 import { ChatRuntimeProvider } from "@/features/chat";
@@ -24,7 +25,9 @@ export default function WorkspaceLayout({
             must not die with it. */}
               <ReadingProvider>
                   <AppShell sidebar={<WorkspaceSidebar />}>
-                    <CapabilityGate>{children}</CapabilityGate>
+                    <AdminOnlyRouteGuard>
+                      <CapabilityGate>{children}</CapabilityGate>
+                    </AdminOnlyRouteGuard>
                   </AppShell>
               </ReadingProvider>
             </ChatRuntimeProvider>

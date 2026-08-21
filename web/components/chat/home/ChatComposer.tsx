@@ -47,6 +47,8 @@ import { CoursePill } from "@/components/chat/home/CoursePill";
 import { WorkspacePill } from "@/components/workspaces/WorkspacePill";
 import type { StudyCourse } from "@/lib/courses-api";
 import type { ChatWorkspaceRegistration } from "@/lib/workspaces-api";
+import { useAuthStatus } from "@/hooks/useAuthStatus";
+import { showEncoreAdminNav } from "@/lib/encore-admin-nav";
 import type { SelectedHistorySession } from "@/components/chat/HistorySessionPicker";
 import type { SelectedQuestionEntry } from "@/components/chat/QuestionBankPicker";
 import type { SelectedRecord } from "@/lib/notebook-selection-types";
@@ -515,6 +517,12 @@ export default memo(function ChatComposer({
   }, [canSelectGroup]);
   const partnerGroupName = partnerGroups.find(group => group.group_id === selectedPartnerGroup)?.name || selectedPartnerGroup;
 
+  const { enabled, isAdmin, loading: authLoading } = useAuthStatus();
+  const showModelControls = showEncoreAdminNav({
+    loading: authLoading,
+    enabled,
+    isAdmin,
+  });
   const CapIcon = activeCap.icon;
 
   const [hasContent, setHasContent] = useState(false);
@@ -1389,17 +1397,19 @@ export default memo(function ChatComposer({
               </div>
 
               <div className={styles.actions}>
-                <ModelSelector
-                  options={llmOptions}
-                  activeDefault={activeLLMDefault}
-                  value={llmSelection}
-                  loading={llmOptionsLoading}
-                  error={llmOptionsError}
-                  onChange={onSelectLLM}
-                  onRefresh={onRefreshLLMOptions}
-                />
+                {showModelControls ? (
+                  <ModelSelector
+                    options={llmOptions}
+                    activeDefault={activeLLMDefault}
+                    value={llmSelection}
+                    loading={llmOptionsLoading}
+                    error={llmOptionsError}
+                    onChange={onSelectLLM}
+                    onRefresh={onRefreshLLMOptions}
+                  />
+                ) : null}
 
-                {contextBudget ? <ContextBudgetChip budget={contextBudget} /> : null}
+                {showModelControls && contextBudget ? <ContextBudgetChip budget={contextBudget} /> : null}
 
                 <Tooltip
                   label={recorder.state === "recording" ? t("Stop recording") : t("Record voice")}

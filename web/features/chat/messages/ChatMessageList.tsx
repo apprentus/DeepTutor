@@ -111,6 +111,8 @@ import { hasSettledFinalRound } from "@/features/chat/trace/selectors";
 import type { MessageTraceMetadata } from "@/features/chat/trace/memory";
 import { supportsSubmissionReplacement, type OrphanedFailedTurn } from "@/lib/session-api";
 import { agentGlyph } from "@/components/agents/agent-icons";
+import { useAuthStatus } from "@/hooks/useAuthStatus";
+import { showEncoreAdminNav } from "@/lib/encore-admin-nav";
 import { useConsultationReference } from "@/hooks/useConsultationReference";
 import { useConnectedAgentKinds } from "@/hooks/useConnectedAgentKinds";
 import {
@@ -2098,6 +2100,12 @@ export const ChatMessageList = memo(function ChatMessageList({
   onReleaseMessageTrace?: (messageId: number) => void;
 }) {
   const { t } = useTranslation();
+  const { enabled, isAdmin, loading: authLoading } = useAuthStatus();
+  const showCostFooter = showEncoreAdminNav({
+    loading: authLoading,
+    enabled,
+    isAdmin,
+  });
   // Visible path: when no branching has happened the result is identical
   // to the input. After an edit, sibling branches are filtered out so the
   // UI shows exactly one continuous thread, with arrow nav exposed on the
@@ -2402,7 +2410,8 @@ export const ChatMessageList = memo(function ChatMessageList({
             : null;
         const showDelete = deletableTurnUserId != null;
 
-        const costSummary = msgDone ? messageUsage(msg.events) : null;
+        const costSummary =
+          showCostFooter && msgDone ? messageUsage(msg.events) : null;
 
         return (
           <div

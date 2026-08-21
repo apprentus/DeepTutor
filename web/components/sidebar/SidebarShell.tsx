@@ -28,6 +28,11 @@ import type {
 import type { MasteryTopicLabel } from "@/lib/learning-api";
 import type { ReadingCollectionLabel } from "@/lib/reading-workspace-api";
 import type { StudyCourse } from "@/lib/courses-api";
+import { useAuthStatus } from "@/hooks/useAuthStatus";
+import {
+  isEncoreAdminOnlyNavHref,
+  showEncoreAdminNav,
+} from "@/lib/encore-admin-nav";
 import { useSidebarResize } from "@/hooks/useSidebarResize";
 import { SidebarHome, SidebarNav } from "@/components/sidebar/SidebarNav";
 import { SECONDARY_NAV, isNavActive } from "@/components/sidebar/nav-entries";
@@ -107,6 +112,7 @@ export function SidebarShell({
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useTranslation();
+  const { enabled, isAdmin, loading: authLoading } = useAuthStatus();
   const { sidebarCollapsed, setSidebarCollapsed: setCollapsed } = useAppShell();
   const { isMobile } = useDevice();
   const drawer = useSidebarDrawer();
@@ -128,6 +134,14 @@ export function SidebarShell({
     drawer?.close();
   };
 
+  const showAdminNav = showEncoreAdminNav({
+    loading: authLoading,
+    enabled,
+    isAdmin,
+  });
+  const secondaryNav = SECONDARY_NAV.filter(
+    (item) => showAdminNav || !isEncoreAdminOnlyNavHref(item.href),
+  );
   const renderedFooter =
     typeof footerSlot === "function" ? footerSlot(collapsed) : footerSlot;
   // The order the learner dragged the history region into — conversation ids
@@ -222,7 +236,7 @@ export function SidebarShell({
         {/* Secondary nav + footer */}
         <div className="flex w-full shrink-0 flex-col items-center gap-1 px-1.5">
           <div className="my-1 h-px w-7 bg-border/40" />
-          {SECONDARY_NAV.map((item) => {
+          {secondaryNav.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
               <Tooltip key={item.href} label={t(item.label) as string} side="right">
@@ -362,7 +376,7 @@ export function SidebarShell({
       <div className="shrink-0 border-t border-border/40 px-2 py-2">
         {renderedFooter}
         <div className="flex items-center gap-1">
-          {SECONDARY_NAV.map((item) => {
+          {secondaryNav.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
               <Link
