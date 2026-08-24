@@ -113,8 +113,17 @@ async def test_interface_language_accepts_french(
 
     assert response["language"] == "fr"
     assert interface_settings.get_ui_language() == "fr"
-    # The two languages stay independent: the router persists both fields, so
-    # switching the interface does not drag the model output language along.
+    # The patch stores only what was explicitly provided, so a response
+    # language that was never chosen inherits the interface language.
+    assert interface_settings.get_response_language() == "fr"
+
+    # An explicit choice wins over inheritance and survives later interface
+    # switches.
+    await settings_router.update_ui_settings(
+        settings_router.UISettingsUpdate(response_language="en")
+    )
+
+    assert interface_settings.get_ui_language() == "fr"
     assert interface_settings.get_response_language() == "en"
 
 
