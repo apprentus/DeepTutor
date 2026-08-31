@@ -5,6 +5,7 @@ import { CapabilityAccessProvider } from "@/components/access/CapabilityAccessCo
 import CapabilityGate from "@/components/access/CapabilityGate";
 import { UnifiedChatProvider } from "@/context/UnifiedChatContext";
 import { ReadingProvider } from "@/context/ReadingContext";
+import { WatchingProvider } from "@/context/WatchingContext";
 
 export default function WorkspaceLayout({
   children,
@@ -18,11 +19,13 @@ export default function WorkspaceLayout({
             /home → /home/<id>, which remounts the page. The open document
             must not die with it. */}
         <ReadingProvider>
-          <AppShell sidebar={<WorkspaceSidebar />}>
-            <AdminOnlyRouteGuard>
-              <CapabilityGate>{children}</CapabilityGate>
-            </AdminOnlyRouteGuard>
-          </AppShell>
+          <WatchingProvider>
+            <AppShell sidebar={<WorkspaceSidebar />}>
+              <AdminOnlyRouteGuard>
+                <CapabilityGate>{children}</CapabilityGate>
+              </AdminOnlyRouteGuard>
+            </AppShell>
+          </WatchingProvider>
         </ReadingProvider>
       </UnifiedChatProvider>
     </CapabilityAccessProvider>

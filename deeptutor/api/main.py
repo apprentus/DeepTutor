@@ -365,6 +365,7 @@ from deeptutor.api.routers import (
     capabilities_settings,
     chat,
     co_writer,
+    courses,
     dashboard,
     imports,
     knowledge,
@@ -374,13 +375,14 @@ from deeptutor.api.routers import (
     memory,
     notebook,
     outputs,
+    partner_groups,
     partners,
     personas,
-    plugins_api,
     question,
     question_notebook,
     quiz_judge,
     reading,
+    reading_extensions,
     sessions,
     settings,
     skills,
@@ -389,6 +391,8 @@ from deeptutor.api.routers import (
     subagents,
     system,
     unified_ws,
+    video_learning,
+    visualizers,
     voice,
 )
 from deeptutor.api.routers import (
@@ -442,6 +446,12 @@ app.include_router(
 )
 app.include_router(book.router, prefix="/api/v1/book", tags=["book"], dependencies=_auth)
 app.include_router(reading.router, prefix="/api/v1/reading", tags=["reading"], dependencies=_auth)
+app.include_router(
+    reading_extensions.router,
+    prefix="/api/v1/reading",
+    tags=["reading-extensions"],
+    dependencies=_auth,
+)
 app.include_router(memory.router, prefix="/api/v1/memory", tags=["memory"], dependencies=_auth)
 app.include_router(
     capabilities_settings.router,
@@ -458,6 +468,7 @@ app.include_router(
 app.include_router(
     sessions.router, prefix="/api/v1/sessions", tags=["sessions"], dependencies=_auth
 )
+app.include_router(courses.router, prefix="/api/v1/courses", tags=["courses"], dependencies=_auth)
 app.include_router(
     question_notebook.router,
     prefix="/api/v1/question-notebook",
@@ -475,6 +486,12 @@ app.include_router(
 )
 app.include_router(
     settings.router, prefix="/api/v1/settings", tags=["settings"], dependencies=_auth
+)
+app.include_router(
+    video_learning.settings_router,
+    prefix="/api/v1/settings/video-learning",
+    tags=["video-learning-settings"],
+    dependencies=_admin,
 )
 app.include_router(
     mcp_settings.router,
@@ -513,7 +530,16 @@ app.include_router(tools_router.router, prefix="/api/v1/tools", tags=["tools"], 
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"], dependencies=_auth)
 app.include_router(voice.router, prefix="/api/v1/voice", tags=["voice"], dependencies=_auth)
 app.include_router(
-    plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"], dependencies=_auth
+    video_learning.router,
+    prefix="/api/v1/video-learning",
+    tags=["video-learning"],
+    dependencies=_auth,
+)
+app.include_router(
+    visualizers.router,
+    prefix="/api/v1/visualizers",
+    tags=["visualizers"],
+    dependencies=_auth,
 )
 app.include_router(
     agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"], dependencies=_auth
@@ -525,6 +551,12 @@ app.include_router(
 # express.
 app.include_router(
     partners.router, prefix="/api/v1/partners", tags=["partners"], dependencies=_auth
+)
+app.include_router(
+    partner_groups.router,
+    prefix="/api/v1/partner-groups",
+    tags=["partner-groups"],
+    dependencies=_auth,
 )
 app.include_router(
     attachments.router,

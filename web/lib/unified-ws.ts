@@ -54,6 +54,8 @@ export interface StartTurnMessage {
   content: string;
   tools?: string[];
   capability?: string | null;
+  /** Stable product surface; capability remains the action for this turn. */
+  workspace_mode?: "immersive_reading" | "mastery_path" | "";
   knowledge_bases?: string[];
   session_id?: string | null;
   attachments?: {
@@ -77,6 +79,8 @@ export interface StartTurnMessage {
   }[];
   /** Persistent mastery state to use independently of this chat session. */
   mastery_path_id?: string;
+  /** Private Immersive Reading workspace that owns this turn/session. */
+  reading_workspace_id?: string;
   /** Immersive reading: the document open in the reader pane, if any. Its
    *  presence is what activates the reading capability for the turn. */
   reading_material_id?: string;
@@ -86,6 +90,9 @@ export interface StartTurnMessage {
     locator?: number;
     selection?: string;
   };
+  /** Immersive Watching material and live player position. */
+  timed_media_id?: string;
+  timed_media_viewport?: { time_seconds: number };
   persona?: string;
   llm_selection?: LLMSelection | null;
   /** Edit-branching: when present (even as ``null``) the new user message

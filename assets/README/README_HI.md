@@ -61,9 +61,10 @@
 
 DeepTutor एक agent-native learning workspace है जो tutoring, problem solving, quiz generation, research, visualization, और mastery practice को एक extensible system में जोड़ता है।
 
-- **हर मोड के लिए एक रनटाइम** — Chat, Quiz, Research, Visualize, Solve, Mastery Path और Immersive Reading एक ही agent loop पर चलते हैं, इसलिए आप objective बदलते हैं, engine नहीं, और context learner के साथ बना रहता है।
+- **हर मोड के लिए एक रनटाइम** — Chat, Ask Questions, Quiz, Research, Visualize, Solve, Course Study, Mastery Path, Immersive Reading और Immersive Watching एक ही capability runtime और session context share करते हैं, जबकि हर उद्देश्य के लिए बने loops और pipelines बनाए रखते हैं।
 - **जुड़ा हुआ लर्निंग कॉन्टेक्स्ट** — Knowledge bases, books, Co-Writer drafts, notebooks, question banks, personas, और Memory सभी workflows में उपलब्ध रहते हैं, isolated tools में बंद रहने की बजाय।
-- **सब-एजेंट और Partners** — किसी भी turn से एक live coding CLI (Claude Code, Codex, Gemini, Kimi, opencode, या MiMo) या एक Partner से सलाह लें (या उनकी पिछली conversations import करें), और same brain पर persistent IM companions चलाएं।
+- **इमर्सिव वीडियो लर्निंग** — privacy-enhanced native playback, synchronized captions, timestamp-grounded tutoring और resumable progress के लिए एक YouTube link paste करें; administrators materials को rebuild किए बिना playback को self-hosted Invidious instance पर switch कर सकते हैं।
+- **सब-एजेंट और Partners** — किसी भी turn से एक live agent harness (Claude Code, Codex, Antigravity, Kimi, opencode, MiMo, Hermes, OpenClaw, या DeepSeek) या एक Partner से सलाह लें (या पिछली conversations import करें), और same brain पर persistent IM companions चलाएं।
 - **मल्टी-इंजन नॉलेज** — LlamaIndex, PageIndex, GraphRAG, LightRAG, एक remote LightRAG Server, एक Tencent IMA या MarginNote 4 library, या एक linked Obsidian vault के साथ versioned RAG libraries, pluggable document parsing के साथ।
 - **एक्सटेंसिबल टूल्स और स्किल्स** — built-in tools, MCP servers, CLI apps, image / video / voice generation models, और EduHub से installable community skills।
 - **इंस्पेक्टेबल मेमोरी** — L1 traces, L2 surface summaries, और L3 synthesis personalization को visible और editable बनाते हैं, एक Memory Graph के साथ जो हर दावे को उसके साक्ष्य तक trace करता है।
@@ -82,11 +83,11 @@ DeepTutor चार installation paths के साथ आता है। व�
 ```bash
 mkdir -p my-deeptutor && cd my-deeptutor
 pip install -U deeptutor
-deeptutor init     # ports + LLM provider + optional embedding के लिए prompt करता है
+deeptutor init     # ports + LLM provider + optional embedding/search के लिए prompt करता है
 deeptutor start    # backend + frontend शुरू करता है; terminal खुला रखें
 ```
 
-`deeptutor init` backend port (default `8001`), frontend port (default `3782`), LLM provider / base URL / API key / model, और Knowledge Base / RAG के लिए optional embedding provider के लिए prompt करता है।
+`deeptutor init` backend port (default `8001`), frontend port (default `3782`), LLM provider / base URL / API key / model, Knowledge Base / RAG के लिए optional embedding provider, और Web Search के लिए optional search provider के लिए prompt करता है।
 
 `deeptutor start` के बाद, terminal में print किया गया frontend URL खोलें — default रूप से [http://127.0.0.1:3782](http://127.0.0.1:3782)। backend और frontend दोनों को रोकने के लिए उस terminal में `Ctrl+C` दबाएं। Quick trial के लिए `deeptutor init` छोड़ना ठीक है; app default ports और empty model settings के साथ boot होगा, उन्हें बाद में **Settings → Models** में configure करें।
 
@@ -128,11 +129,14 @@ python -m pip install --upgrade pip
 </details>
 
 <details>
-<summary><b>वैकल्पिक install extras</b> — dev / partners / matrix / math-animator</summary>
+<summary><b>वैकल्पिक install extras</b> — RAG engines / dev / partners / matrix / math-animator</summary>
 
 ```bash
+pip install -e ".[rag-lightrag]"    # Built-in LightRAG engine (सटीक समर्थित SDK)
+pip install -e ".[graphrag]"        # Microsoft GraphRAG engine
 pip install -e ".[dev]"             # tests/lint tools
-pip install -e ".[partners]"        # Partner IM channel SDKs + MCP client
+pip install -e ".[partners]"        # Partner IM channel SDKs
+pip install -e ".[video-learning]"  # optional YouTube public-caption adapter
 pip install -e ".[matrix]"          # E2EE/libolm के बिना Matrix channel
 pip install -e ".[matrix-e2e]"      # Matrix E2EE; libolm चाहिए
 pip install -e ".[math-animator]"   # Manim addon; LaTeX/ffmpeg/system libs चाहिए
@@ -244,7 +248,7 @@ deeptutor init --cli
 deeptutor chat
 ```
 
-`deeptutor init --cli` पूरे app के समान `data/user/settings/` layout share करता है लेकिन backend/frontend port prompts skip करता है और embeddings को **off** default करता है (अगर आप `deeptutor kb …` या RAG tools उपयोग करने की योजना रखते हैं तो `Yes` चुनें)। यह फिर भी एक complete runtime layout (`system.json`, `auth.json`, `integrations.json`, `model_catalog.json`, `main.yaml`, `agents.yaml`) लिखता है और active LLM provider और model के लिए prompt करता है।
+`deeptutor init --cli` पूरे app के समान `data/user/settings/` layout share करता है लेकिन backend/frontend port prompts skip करता है और embeddings को **off** default करता है (अगर आप `deeptutor kb …` या RAG tools उपयोग करने की योजना रखते हैं तो `Yes` चुनें)। यह फिर भी मुख्य runtime files (`system.json`, `auth.json`, `integrations.json`, `interface.json`, `model_catalog.json`, `main.yaml`, `agents.yaml`) लिखता है और active LLM provider और model के लिए prompt करता है।
 
 <details>
 <summary><b>सामान्य commands</b></summary>
@@ -289,6 +293,7 @@ Subprocess sandbox `data/user/settings/system.json` में `sandbox_allow_sub
 | `auth.json` | Optional auth toggle, username, password hash, token/cookie settings |
 | `integrations.json` | Optional PocketBase और sidecar integration settings |
 | `interface.json` | UI और model output language / theme / sidebar preferences |
+| `video_learning.json` | Default YouTube/Invidious playback provider, Invidious origins, और optional transcript adapter |
 | `main.yaml` | Runtime behavior defaults और path injection |
 | `agents.yaml` | Capability/tool temperature और token settings |
 
@@ -301,7 +306,7 @@ Project-root `.env` application config file के रूप में **नह�
 दैनिक उपयोग की मुख्य surfaces से शुरू करें: Chat, Partners, My Agents, Co-Writer, Book, Knowledge Center, Learning Space, Memory, और Settings। फिर tour साझा, isolated workspaces के लिए Multi-User deployments को cover करता है।
 
 <div align="center">
-<img src="../../assets/figs/web-1.4.6+/OVERVIEW.png" alt="DeepTutor home — sidebar में हर surface के साथ Chat workspace" width="900">
+<img src="../../assets/figs/web-1.6.0/OVERVIEW.png" alt="DeepTutor home — sidebar में हर surface के साथ Chat workspace" width="900">
 </div>
 
 <details>
@@ -332,7 +337,7 @@ User-toggleable tools हैं `brainstorm`, `web_search`, `paper_search`, `rea
 
 Context दो प्रकार की होती है: **sticky session context** (subagent, knowledge bases, persona, model, voice) composer toolbar पर रहती है और turns के पार persist करती है; **एक-बार references** (files, chat history, books, notebooks, question bank, imported agents) एक single turn के लिए `+` menu से आते हैं।
 
-Chat deeper capabilities के लिए launch point भी है: **Quiz** question generation के लिए, **Visualize** charts / diagrams / animations के लिए, **Mastery Path** learning-plan flows के लिए, और **Immersive Reading** — एक document जो thread के बगल में खुला रहता है, हर दावे को उस page तक cite करते हुए जहां से वह आया। **Research** cited reports के लिए और **Solve** worked reasoning के लिए *More Capabilities* के नीचे रहते हैं।
+Home **Chat**, **Ask Questions**, **Quiz**, **Visualize**, और **Immersive Watching** को एक क्लिक की दूरी पर रखता है; cited reports के लिए **Research** और worked reasoning के लिए **Solve** *More Capabilities* के नीचे रहते हैं। **Mastery Path** और **Immersive Reading** dedicated sidebar workspaces हैं, जबकि Course Study अपना course-bound context बनाए रखता है।
 
 </details>
 
@@ -368,7 +373,7 @@ Channel layer schema-driven है और installed extras और configured cre
 <img src="../../assets/figs/web-1.4.6+/myagents/00-overview.png" alt="DeepTutor My Agents workspace" width="900">
 </div>
 
-My Agents दूसरे agents को DeepTutor के लिए context बनाता है, और दो अलग काम करता है। **लाइव एजेंट connect करें** — आपकी machine पर एक Claude Code, Codex, Gemini, Antigravity, Kimi, opencode, या MiMo Code CLI, या आपके Partners में से एक — और इसे chat turn के अंदर से consult करें: DeepTutor actually दूसरे agent को *run* करता है और इसके काम को `consult_subagent` tool के जरिए Activity panel में stream करता है। इसे Agent chip से select करें (या `@` type करें), और set करें कि consult कितने rounds ले सकता है।
+My Agents दूसरे agents को DeepTutor के लिए context बनाता है, और दो अलग काम करता है। **लाइव एजेंट connect करें** — आपकी machine पर Claude Code, Codex, Antigravity, Kimi, opencode, MiMo Code, Hermes Agent, OpenClaw, या DeepSeek Harness, या आपके Partners में से एक — और इसे chat turn के अंदर से consult करें: DeepTutor actually दूसरे agent को *run* करता है और इसके काम को `consult_subagent` tool के जरिए Activity panel में stream करता है। इसे Agent chip से select करें (या `@` type करें), और set करें कि consult कितने rounds ले सकता है।
 
 <div align="center">
 <img src="../../assets/figs/web-1.4.6+/home/08-subagent%20demo%20with%20claude%20code.png" alt="Claude Code subagent को live consult करना" width="900">
@@ -412,7 +417,7 @@ Book selected sources को एक interactive **living book** में बद
 <img src="../../assets/figs/web-1.4.6+/book/03-book-demo%20interactive%20module.png" alt="Book interactive widget block" width="31%">
 </p>
 
-हर chapter typed blocks में compile होती है — text, callouts, quizzes, flash cards, timelines, code, figures, interactive HTML, animations, concept graphs, deep dives, और user notes — और हर page का अपना Page Chat है। Blocks editable हैं: किसी block को insert, move, regenerate, body rewrite करें, या chapter दोबारा किए बिना उसका type switch करें। Visited pages, bookmarks, और quiz attempts मिलकर एक completion score और weak chapters में roll up होते हैं; कोई भी book Markdown में export होती है। एक लंबी compile pause और resume होती है; `deeptutor book health` और `refresh-fingerprints` उस source knowledge को flag करते हैं जो drift हो गई हो।
+हर chapter editable typed blocks में compile होता है — text, callouts, quizzes, flash cards, timelines, code, figures, interactive HTML, animations, concept graphs, deep dives, और user notes — और उसका अपना Page Chat होता है। किसी block को insert, move, regenerate, rewrite, या उसका type switch करें; selected passages review की जा सकने वाली learning-capture inbox में जाते हैं। Progress, bookmarks, quiz attempts, captures, और Page Chat हर reader के लिए private रहते हैं, भले admin की book read-only या collaborative editing के लिए share की गई हो; shared book delete करना admin-only रहता है। कोई भी book Markdown में export हो सकती है, लंबी compiles pause और resume होती हैं, और `deeptutor book health` / `refresh-fingerprints` source drift को flag करते हैं।
 
 </details>
 
@@ -429,7 +434,9 @@ Knowledge bases RAG के पीछे document collections हैं — व�
 <img src="../../assets/figs/web-1.4.6+/knowledge/01-create%20knowledge%20base.png" alt="एक knowledge base बनाएं" width="900">
 </div>
 
-KB बनाते समय, आप either **नया create** करते हैं (documents upload करें और fresh index build करें) या **existing link** करते हैं (कहीं और बना index reuse करें, re-index के बिना in-place पढ़ें)। एक KB **GitHub sources** को भी track कर सकती है — एक repo, branch, और glob जिसका Markdown pull किया जाता है और demand पर re-sync किया जाता है, इसलिए जो documentation आप follow करते हैं वह re-upload किए बिना current बनी रहती है। Re-indexing एक नई flat `version-N` directory लिखता है और prior ones रखता है, इसलिए एक working index rebuild के दौरान कभी destroy नहीं होता। एक single document को **error**-state base से भी remove किया जा सकता है — पूरी delete-and-rebuild के बिना parse होने में failed हुई file को drop करना। Document parsing — Text-only, MinerU, Docling, Tika, markitdown, PyMuPDF4LLM, या LiteParse — **Settings → Knowledge Base** में choose किया जाता है, local model downloads default रूप से off हैं। Docling को **remote** mode में भी एक Docling Serve server के विरुद्ध चलाया जा सकता है (कोई local install या models की जरूरत नहीं), जिसे **Settings → Document Parsing** (`mode=remote`, एक server base URL, और एक optional API key) या `DOCLING_MODE` / `DOCLING_API_BASE_URL` / `DOCLING_API_TOKEN` environment variables के जरिए configure किया जाता है। Tika remote-only है और एक Apache Tika server (`TIKA_SERVER_URL`) पर point करता है। CLI lifecycle को `deeptutor kb list`, `info`, `create`, `add`, `search`, `set-default`, और `delete` से mirror करता है।
+KB बनाते समय, आप either **नया create** करते हैं (documents upload करें और fresh index build करें) या **existing link** करते हैं (कहीं और बना index reuse करें, re-index के बिना in-place पढ़ें)। एक KB **GitHub repositories** (repo, branch, glob) या **documentation-site URLs** (सीमित crawl depth और page count) को भी track कर सकती है; on-demand sync added, changed, और removed content का hash-diff करती है, इसलिए जो documentation आप follow करते हैं वह re-upload किए बिना current बनी रहती है। Re-indexing एक नई flat `version-N` directory लिखता है और prior ones रखता है, इसलिए एक working index rebuild के दौरान कभी destroy नहीं होता। एक single document को **error**-state base से भी remove किया जा सकता है — पूरी delete-and-rebuild के बिना parse होने में failed हुई file को drop करना। Document parsing — Text-only, MinerU, Docling, Tika, markitdown, PyMuPDF4LLM, या LiteParse — **Settings → Knowledge Base** में choose किया जाता है, local model downloads default रूप से off हैं। Docling को **remote** mode में भी एक Docling Serve server के विरुद्ध चलाया जा सकता है (कोई local install या models की जरूरत नहीं), जिसे **Settings → Document Parsing** (`mode=remote`, एक server base URL, और एक optional API key) या `DOCLING_MODE` / `DOCLING_API_BASE_URL` / `DOCLING_API_TOKEN` environment variables के जरिए configure किया जाता है। Tika remote-only है और एक Apache Tika server (`TIKA_SERVER_URL`) पर point करता है। CLI lifecycle को `list/info/create/add/search/set-default/delete`, source add/remove commands, `list-sources`, और `sync` से mirror करता है।
+
+Built-in LightRAG engine `pip install 'deeptutor[rag-lightrag]'` से install होता है। उस extra में supported LightRAG SDK शामिल है लेकिन यह MinerU install नहीं करता। Document Parsing में MinerU को स्वतंत्र रूप से चुनें और structured parsing चाहिए हो तो या तो इसका cloud mode configure करें या इसका current local CLI install करें। MinerU PDF, common raster images, DOCX, PPTX, और XLSX स्वीकार करता है; legacy `magic-pdf` command PDF-only रहता है। Text-only और बाकी parsing engines को MinerU की जरूरत नहीं होती।
 
 </details>
 
@@ -440,7 +447,7 @@ KB बनाते समय, आप either **नया create** करते �
 <img src="../../assets/figs/web-1.4.6+/learning-space/00-overview.png" alt="DeepTutor Learning Space hub" width="900">
 </div>
 
-Learning Space library और personalization layer है — वह जगह जहां persist होने वाली चीजें रहती हैं। **Conversations & Materials** में आपका chat history, notebooks — अब अपना खुद का console, जिसमें records notebooks के बीच move या copy होते हैं और एक Markdown export होता है — और एक question bank है (हर saved question आपका जवाब, reference answer, और एक explanation रखता है)। **Personalization** में mastery paths, personas (behavior presets जैसे *peer*, *research-assistant*, *teacher*), skills (`SKILL.md` playbooks जिन्हें model on-demand पढ़ता है), **MCP Services** — hosted MCP servers का एक curated store जिन्हें आप एक click में खुद के लिए install करते हैं, साथ ही कोई भी remote server जिसे आप URL से configure करते हैं — और **CLI Apps** हैं, [CLI-Anything](https://github.com/HKUDS/CLI-Anything) catalog से command-line tools जिन्हें chat agent directly call करता है, हर app की अपनी usage guide on-demand load होती है। यहां सब कुछ Chat, Partners, Co-Writer, और Book से reuse किया जा सकता है।
+Learning Space library, organization, और personalization layer है। **My courses** हर subject की conversations को group करता है और tutor threads को उनके parent के नीचे nested रखता है; Chat History course या thread type के अनुसार filter करता है और sessions को pin, archive, या move करने देता है। **Conversations & Materials** में notebooks भी हैं — उनके records notebooks के बीच move या copy होते हैं और Markdown में export किए जा सकते हैं — और एक question bank है जो आपका जवाब, reference answer, और explanation रखता है। **Personalization** में personas, skills (`SKILL.md` playbooks), one-click **MCP Services**, और [CLI-Anything](https://github.com/HKUDS/CLI-Anything) catalog के **CLI Apps** हैं, जिनकी usage guide on-demand load होती है। यहां सब कुछ Chat, Partners, Co-Writer, और Book से reuse किया जा सकता है।
 
 <div align="center">
 <img src="../../assets/figs/web-1.4.6+/learning-space/07-%20download%20skills%20from%20eduhub.png" alt="EduHub से skills import करें" width="900">
@@ -474,7 +481,9 @@ Memory Graph पूरा pyramid दिखाता है — L3 synthesis cen
 <img src="../../assets/figs/web-1.4.6+/settings/00-setting%20overview.png" alt="DeepTutor settings hub" width="900">
 </div>
 
-Settings operational control plane है, एक live status strip (Backend health और पूरे process tree में resident memory) और प्रत्येक area के लिए एक card के साथ: **Appearance** (theme, UI और model output language, code-block styling), **Network** (API base, ports, CORS), **Models** (LLM, Embedding, Search, Text-to-Speech, Speech-to-Text, Image Generation, Video Generation), **Knowledge Base** (document parsing engine), **Chat** (tools, per-capability parameters, attachment caps), **Partners & Agents** (वे subagents जिन्हें आप turn से consult कर सकते हैं), और **Memory** (consolidator के budgets)।
+Settings operational control plane है, एक live status strip (Backend health और पूरे process tree में resident memory) और एक persistent, searchable navigator के साथ जो एक ही क्लिक में किसी भी page तक पहुंचाता है: **Appearance** (theme, UI और model output language, code-block styling), **Network** (API base, ports, CORS), **Models** (Connections, LLM, Task models, Embedding, Search, Text-to-Speech, Speech-to-Text, Image Generation, Video Generation), **Knowledge Base** (document parsing engine), **Chat** (Video Learning, tools, per-capability parameters, starting points, attachment caps), **Partners & Agents** (नौ local harnesses), **Memory** (consolidator के budgets), और **About** (version checks और safe updates)। एक **connection** एक vendor credential रखती है और उसे हर उस service में mirror करती है जिसे वह vendor serve कर सकता है, इसलिए एक key पांच pages में paste करने की बजाय एक बार enter की जाती है; **task models** उस काम के लिए एक छोटा, तेज़ model pin करते हैं जो किसी ने नहीं मांगा — किसी conversation को नाम देना, composer के starting points लिखना — और खाली छोड़े जाने पर active default पर resolve हो जाते हैं।
+
+Settings → Chat के तहत **Video Learning** default रूप से official privacy-enhanced YouTube IFrame Player उपयोग करता है। Playback को local रखने के लिए administrator-managed Invidious API origin (उदाहरण के लिए `http://127.0.0.1:3000`) set करें, इसे test करें, Invidious select करें, और save करें। नई या फिर से खोली गई videos वही material ID और progress रखते हुए तुरंत provider अपना लेती हैं। Invidious media DeepTutor के byte-range proxy से stream होता है; upstream URLs न browser के सामने expose होते हैं, न disk पर store किए जाते हैं। अगर instance fail हो जाए, तो learner के explicitly native YouTube fallback चुनने तक DeepTutor YouTube से offline रहता है। Public-caption tutoring optional है: `.[video-learning]` install करें; इसके बिना playback जारी रहता है, जबकि transcript-based **Explain here** कारण के साथ disabled रहता है।
 
 <div align="center">
 <img src="../../assets/figs/web-1.4.6+/settings/01-appearance%20settings.png" alt="DeepTutor appearance settings and themes" width="900">
@@ -520,9 +529,9 @@ data/
 └── system/                  # auth · grants · audit · user-secrets/<owner> (OAuth tokens)
 ```
 
-**पहला registered user admin बनता है** और model catalogs, provider credentials, shared knowledge bases, skills, और per-user grants own करता है। बाकी सभी को isolated workspace और redacted Settings page मिलती है — admin-assigned models, KBs, और skills scoped, read-only options के रूप में दिखाई देते हैं, कभी raw API keys के रूप में नहीं।
+**पहला registered user admin बनता है** और model catalogs, provider credentials, shared knowledge bases, skills, canonical shared books, और per-user grants own करता है। बाकी सभी को isolated workspace और redacted Settings page मिलती है — assigned models, KBs, और skills scoped, read-only options के रूप में दिखाई देते हैं, कभी raw API keys के रूप में नहीं। Book creation और default/per-book read या collaborative-edit access **Book access** के तहत अलग से assign किए जाते हैं; shared deletion admin-only रहती है। अगर `auth.json` में पहले से `username` + `password_hash` है, तो वही account admin है: `/register` बंद रहता है और `/admin/users` से बनाए गए accounts हमेशा `role=user` रहते हैं, जब तक आप उन्हें promote न करें।
 
-**Enable करें:** `data/user/settings/auth.json` में auth on करें, `deeptutor start` restart करें, `/register` पर पहला admin register करें, फिर `/admin/users` से users add करें और grants के जरिए models, KBs, skills, Partners, tool/MCP/CLI-app policy, और code-execution access assign करें।
+**Enable करें:** `data/user/settings/auth.json` में auth on करें, `deeptutor start` restart करें, `/register` पर पहला admin register करें, फिर `/admin/users` से users add करें और grants के जरिए models, KBs, skills, Partners, tool/MCP/CLI-app policy, और code-execution access assign करें; हर user के **Book access** panel में shared books configure करें।
 
 > PocketBase single-user integration रहता है — multi-user deployments के लिए `integrations.pocketbase_url` blank रखें जब तक आपने external user store wire up नहीं किया हो।
 
@@ -545,7 +554,7 @@ deeptutor run deep_research "Survey 2026 papers on RAG" \
   --config mode=report --config depth=standard
 ```
 
-Web app जो कुछ भी करता है वह यहां भी है — knowledge bases (`kb`), sessions (`session`), partners (`partner`), skills (`skill`), notebooks, memory, और config। नीचे पूरी list।
+Core workspace management यहां भी उपलब्ध है — knowledge bases (`kb`), sessions (`session`), partners (`partner`), skills (`skill`), notebooks, memory, और config; course और session organization Web app में ही रहते हैं। नीचे पूरी list।
 
 </details>
 
@@ -565,7 +574,7 @@ SID=$(deeptutor run deep_research "Survey 2026 papers on RAG" \
 deeptutor run deep_question "Quiz me on that survey" --session "$SID" --format json
 ```
 
-Repo एक root [`SKILL.md`](../../SKILL.md) ship करता है — एक ~150-line handover doc जो किसी भी tool-using LLM को एक read में पूरा surface सिखाता है। इसे Claude Code, Codex, या OpenCode को दें (वे `SKILL.md` automatically pick up करते हैं), या `deeptutor run` को LangChain / AutoGen loop में एक tool के रूप में wrap करें। पूरे recipes: [Agent Handoff](https://deeptutor.info/docs/cli/agent-handoff/)।
+Repo एक root [`SKILL.md`](../../SKILL.md) ship करता है — एक ~200-line handover doc जो किसी भी tool-using LLM को एक read में पूरा surface सिखाता है। इसे Claude Code, Codex, या OpenCode को दें (वे `SKILL.md` automatically pick up करते हैं), या `deeptutor run` को LangChain / AutoGen loop में एक tool के रूप में wrap करें। पूरे recipes: [Agent Handoff](https://deeptutor.info/docs/cli/agent-handoff/)।
 
 </details>
 
@@ -578,10 +587,10 @@ Repo एक root [`SKILL.md`](../../SKILL.md) ship करता है — ए�
 | `deeptutor doctor [--online]` | Check करें कि workspace session शुरू करने के लिए ready है या नहीं; `--online` configured model provider को भी probe करता है, `--format json` report print करता है |
 | `deeptutor start [--home PATH] [--dev]` | Backend + frontend को एक साथ launch करें |
 | `deeptutor serve [--port PORT]` | केवल FastAPI backend start करें |
-| `deeptutor run <capability> <message>` | एक single capability turn run करें (`chat`, `deep_solve`, `deep_question`, `deep_research`, `visualize`, `math_animator`, `mastery_path`); NDJSON output के लिए `--format json` add करें |
+| `deeptutor run <capability> <message>` | एक single capability turn run करें (`chat`, `ask_questions`, `deep_solve`, `deep_question`, `deep_research`, `visualize`, `math_animator`, `mastery_path`, `immersive_reading`, `course_study`, `immersive_watching`); NDJSON output के लिए `--format json` add करें |
 | `deeptutor chat` | capability, tool, KB, notebook, और history controls के साथ interactive REPL |
 | `deeptutor partner list/create/start/stop` | IM-connected partners manage करें |
-| `deeptutor kb list/info/create/add/search/set-default/delete` | LlamaIndex knowledge bases manage करें |
+| `deeptutor kb list/info/create/add/search/set-default/delete/list-sources/sync` | Knowledge bases manage करें और registered GitHub/web sources sync करें (source add/remove commands के साथ) |
 | `deeptutor skill search/install/list/remove/login/logout/publish/update` | Skills manage करें, hubs से install करें, और अपनी खुद publish करें (default `eduhub:<slug>`, Ecosystem देखें) |
 | `deeptutor memory show/clear` | L2/L3 memory docs inspect करें या L1/all memory clear करें |
 | `deeptutor session list/show/open/rename/delete` | Shared sessions manage करें |
@@ -646,7 +655,7 @@ Source चाहे जो भी हो, हर import आपके workspace �
 - frontmatter DeepTutor के schema में normalize होता है और `always:` **stripped** होता है, इसलिए एक downloaded skill खुद को हर system prompt में force नहीं कर सकती;
 - provenance — hub, version, verdict, और install time — audits और updates के लिए `.hub-lock.json` में लिखा जाता है।
 
-Multi-user deployments में, installing admin-only है: एक नई skill admin catalog में land करती है और दूसरे users को invisible रहती है जब तक grant assign नहीं करता, इसलिए admin इसे roll out करने से पहले vet कर सकता है।
+Multi-user deployments में, imports caller की अपनी skill library में आते हैं; admin-assigned skills grant-scoped और read-only रहती हैं।
 
 </details>
 
@@ -658,9 +667,12 @@ Multi-user deployments में, installing admin-only है: एक नई sk
 ```bash
 deeptutor skill search "git release notes" --hub clawhub
 deeptutor skill install clawhub:git-release-notes@1.0.1
+deeptutor skill install clawhub:udiedrichsen/stock-analysis
 ```
 
-`settings/skill_hubs.json` में और registries add करें: एक `type: "clawhub"` entry किसी भी compatible HTTP API पर point करती है (EduHub और ClawHub दोनों इसे बोलते हैं), `type: "command"` जो fetch CLI एक registry ship करती है उसे wrap करता है, और `"default"` bare slugs के लिए उपयोग होने वाला hub choose करता है। सभी same import gate feed करते हैं।
+जब कई publishers same slug share करते हैं, तो search हर publisher को और एक fully scoped install ref (`clawhub:<ownerHandle>/<slug>`) दिखाता है।
+
+`data/user/settings/skill_hubs.json` में और registries add करें: एक `type: "clawhub"` entry किसी भी compatible HTTP API पर point करती है (EduHub और ClawHub दोनों इसे बोलते हैं), `type: "command"` जो fetch CLI एक registry ship करती है उसे wrap करता है, और `"default"` bare slugs के लिए उपयोग होने वाला hub choose करता है। सभी same import gate feed करते हैं।
 
 </details>
 
@@ -681,6 +693,16 @@ deeptutor skill install clawhub:git-release-notes@1.0.1
 </p>
 
 ## 🌐 समुदाय
+
+### 🔗 मेंटेनर्स
+
+<table>
+  <tr>
+    <td align="center"><a href="https://github.com/pancacake"><img src="https://avatars.githubusercontent.com/u/150592536?v=4&s=80" width="80" height="80" alt="Bingxi Zhao"><br><strong>Bingxi Zhao</strong></a></td>
+    <td align="center"><a href="https://github.com/TyrionH-is-coding"><img src="https://avatars.githubusercontent.com/u/275607548?v=4&s=80" width="80" height="80" alt="Xingyu Hou"><br><strong>Xingyu Hou</strong></a></td>
+    <td align="center"><a href="https://github.com/zzhtx258"><img src="https://avatars.githubusercontent.com/u/175302980?v=4&s=80" width="80" height="80" alt="Jiahao Zhang"><br><strong>Jiahao Zhang</strong></a></td>
+  </tr>
+</table>
 
 ### 📮 संपर्क
 

@@ -195,6 +195,10 @@ class AgenticChatPipeline:
         max_rounds: int | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        initial_tool_choice: str | None = None,
+        event_source: str = "chat",
+        event_stage: str = "responding",
+        emit_result: bool = True,
     ) -> None:
         _lang = (language or "en").lower()
         self.language = (
@@ -217,9 +221,19 @@ class AgenticChatPipeline:
         self._deferred_pool: list[Any] = []
         self._exec_enabled = False
         self._kb_manifests: list[KbManifest] = []
+        # A selected capability may require one specific tool on the first
+        # internal loop round. Later rounds return to model-directed selection.
+        self.initial_tool_choice = (initial_tool_choice or "").strip() or None
         # The blocks the turn's system prompt was rendered from, kept for the
         # context-budget breakdown (see ``measure_context_budget``).
         self._last_prompt_blocks: list[PromptBlock] = []
+        # The loop engine is capability-neutral. Chat keeps these defaults;
+        # capabilities such as visualize can reuse the exact loop while owning
+        # their stream namespace and final result envelope.
+        self.event_source = str(event_source or "chat")
+        self.event_stage = str(event_stage or "responding")
+        self.emit_result = bool(emit_result)
+        self.last_result: dict[str, Any] | None = None
 
         try:
             chat_cfg = get_chat_params()
@@ -329,7 +343,7 @@ class AgenticChatPipeline:
         """
         return self.respond_max_tokens
 
-    async def run(self, context: UnifiedContext, stream: StreamBus) -> None:
+    async def run(self, context: UnifiedContext, stream: StreamBus) -> dict[str, Any]:
         await self._prepare_deferred_tools(context)
         await self._prepare_kb_manifests(context)
         self._exec_enabled = await self._exec_allowed(context)
@@ -349,7 +363,8 @@ class AgenticChatPipeline:
             enabled_tools=enabled_tools if use_native_tools else [],
             tool_schemas=tool_schemas,
         )
-        await loop.run()
+        self.last_result = await loop.run()
+        return self.last_result
 
     # ---- prompt assembly -------------------------------------------------
 
@@ -705,6 +720,85 @@ class AgenticChatPipeline:
         ]
         return "\n\n".join(seed for seed in seeds if seed)
 
+    def _capability_finish_instruction(self, context: UnifiedContext, final_text: str) -> str:
+        """Let an active capability reject a narrow tool-less finish once.
+
+        This is a protocol guard, not a content generator: capabilities return
+        a short instruction only when their own state proves that required tool
+        work remains. A guard failure must not sink the learner's answer.
+        """
+        for cap in self._active_loop_capabilities(context):
+            hook = getattr(cap, "finish_instruction", None)
+            if not callable(hook):
+                continue
+            try:
+                instruction = hook(context, final_text)
+            except Exception:
+                logger.warning(
+                    "finish guard failed for capability %s",
+                    getattr(cap, "name", "?"),
+                    exc_info=True,
+                )
+                continue
+            content = str(instruction or "").strip()
+            if content:
+                return content
+        return ""
+
+    def _capability_tool_round_output_policy(
+        self,
+        context: UnifiedContext,
+        final_text: str,
+        tool_names: tuple[str, ...],
+    ) -> str:
+        """Let a finish-guard capability classify a tool round's prose."""
+        for cap in self._active_loop_capabilities(context):
+            hook = getattr(cap, "tool_round_output_policy", None)
+            if not callable(hook):
+                continue
+            try:
+                policy = str(hook(context, final_text, tool_names) or "").strip()
+            except Exception:
+                logger.warning(
+                    "tool-round policy failed for capability %s",
+                    getattr(cap, "name", "?"),
+                    exc_info=True,
+                )
+                continue
+            if policy in {"publish", "discard"}:
+                return policy
+        return ""
+
+    def _capability_final_text_override(
+        self,
+        context: UnifiedContext,
+        final_text: str,
+    ) -> str | None:
+        """Return a capability-owned canonical answer after private protocol work."""
+        for cap in self._active_loop_capabilities(context):
+            hook = getattr(cap, "final_text_override", None)
+            if not callable(hook):
+                continue
+            try:
+                override = hook(context, final_text)
+            except Exception:
+                logger.warning(
+                    "final-text override failed for capability %s",
+                    getattr(cap, "name", "?"),
+                    exc_info=True,
+                )
+                continue
+            if override is not None:
+                return str(override).strip()
+        return None
+
+    def _has_capability_finish_guard(self, context: UnifiedContext) -> bool:
+        """Whether a capability may need to inspect a tool-less finish first."""
+        return any(
+            callable(getattr(cap, "finish_instruction", None))
+            for cap in self._active_loop_capabilities(context)
+        )
+
     async def _capability_pre_loop_briefings(
         self,
         context: UnifiedContext,
@@ -844,8 +938,8 @@ class AgenticChatPipeline:
             tool_name=tool_name,
             tool_args=tool_args,
             stream=stream,
-            source="chat",
-            stage="responding",
+            source=self.event_source,
+            stage=self.event_stage,
             retrieve_meta=retrieve_meta,
             empty_tool_result_message=self._t("notices.empty_tool_result"),
             start_retrieval_message=self._t(
@@ -879,7 +973,7 @@ class AgenticChatPipeline:
             tool_calls=tool_calls,
             context=context,
             stream=stream,
-            source="chat",
+            source=self.event_source,
             stage=stage,
             iteration_index=iteration_index,
             registry=self.tool_lookup,
@@ -900,7 +994,7 @@ class AgenticChatPipeline:
                 tool=tn,
                 default=f"An unknown error occurred while executing {tn}.",
             ),
-            trace_id_prefix="chat-loop",
+            trace_id_prefix=f"{self.event_source}-loop",
         )
 
     async def _notify_pause_hooks(
@@ -975,7 +1069,12 @@ class AgenticChatPipeline:
         }
         if answers:
             meta["answers"] = list(answers)
-        await stream.progress("", source="chat", stage="responding", metadata=meta)
+        await stream.progress(
+            "",
+            source=self.event_source,
+            stage=self.event_stage,
+            metadata=meta,
+        )
 
         # Neutral stop signal for loop plugins (e.g. a crisis redirect): the
         # outer capability owns the final message, so skip further LLM rounds.
@@ -1205,7 +1304,10 @@ class AgenticChatPipeline:
             return ""
         if sources:
             await stream.sources(
-                sources, source="chat", stage="responding", metadata={"trace_kind": "sources"}
+                sources,
+                source=self.event_source,
+                stage=self.event_stage,
+                metadata={"trace_kind": "sources"},
             )
         header = self._t(
             "knowledge_base_seed.header",
@@ -1222,10 +1324,10 @@ class AgenticChatPipeline:
         query: str,
         stream: StreamBus,
     ) -> tuple[str, list[dict[str, Any]]] | None:
-        call_id = new_call_id("chat-kb-seed")
+        call_id = new_call_id(f"{self.event_source}-kb-seed")
         retrieve_meta = build_trace_metadata(
             call_id=call_id,
-            phase="responding",
+            phase=self.event_stage,
             label=self._t("labels.retrieve", default="Retrieve"),
             call_kind="rag_retrieval",
             trace_id=call_id,
@@ -1263,8 +1365,8 @@ class AgenticChatPipeline:
             return
         await stream.content(
             text,
-            source="chat",
-            stage="responding",
+            source=self.event_source,
+            stage=self.event_stage,
             metadata=merge_trace_metadata(final_meta, {"trace_kind": "llm_output"}),
         )
 
@@ -1274,11 +1376,11 @@ class AgenticChatPipeline:
         content: str,
     ) -> None:
         final_meta = build_trace_metadata(
-            call_id=new_call_id("chat-final-response"),
-            phase="responding",
+            call_id=new_call_id(f"{self.event_source}-final-response"),
+            phase=self.event_stage,
             label=self._t("labels.final_response", default="Final response"),
             call_kind="llm_final_response",
-            trace_id="chat-final-response",
+            trace_id=f"{self.event_source}-final-response",
             trace_role="response",
             trace_group="stage",
             fallback=True,
@@ -1296,11 +1398,11 @@ class AgenticChatPipeline:
         if not content:
             return
         final_meta = build_trace_metadata(
-            call_id=new_call_id("chat-final-response"),
-            phase="responding",
+            call_id=new_call_id(f"{self.event_source}-final-response"),
+            phase=self.event_stage,
             label=self._t("labels.final_response", default="Final response"),
             call_kind="llm_final_response",
-            trace_id="chat-final-response",
+            trace_id=f"{self.event_source}-final-response",
             trace_role="response",
             trace_group="stage",
             terminator_tool=str(payload.get("tool_name") or ""),
@@ -1311,8 +1413,8 @@ class AgenticChatPipeline:
             merged["tool_metadata"] = dict(tool_metadata)
         await stream.content(
             content,
-            source="chat",
-            stage="responding",
+            source=self.event_source,
+            stage=self.event_stage,
             metadata=merge_trace_metadata(final_meta, merged),
         )
 
@@ -1348,8 +1450,8 @@ class AgenticChatPipeline:
         if snipped:
             await stream.progress(
                 self._t("notices.context_window_guard"),
-                source="chat",
-                stage="responding",
+                source=self.event_source,
+                stage=self.event_stage,
                 metadata={"trace_kind": "warning"},
             )
 

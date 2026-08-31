@@ -117,6 +117,28 @@ def test_ask_user_is_untouched_without_pending_question(tmp_path, monkeypatch):
     assert MasteryLoopCapability().augment_kwargs("ask_user", authored, _context()) == authored
 
 
+def test_read_source_is_owned_and_reads_the_topic_index_on_demand():
+    """The tutor may call read_source itself; it must never see chat's index.
+
+    ``read_source`` has to be mounted directly (not left to chat's
+    explore_context pre-pass) so the model decides when to read a topic
+    material instead of every material being force-read up front. Wiring it
+    from ``source_index`` instead of ``mastery_topic_source_index`` would
+    silently re-couple mastery to whatever a plain chat turn attached.
+    """
+    assert "read_source" in MasteryLoopCapability.owned_tools
+
+    context = _context()
+    context.metadata["source_index"] = {"nb-other": "unrelated chat attachment"}
+    context.metadata["mastery_topic_source_index"] = {"bk-path-1-ch1": "chapter one text"}
+
+    kwargs = MasteryLoopCapability().augment_kwargs(
+        "read_source", {"source_id": "bk-path-1-ch1"}, context
+    )
+
+    assert kwargs["source_index"] == {"bk-path-1-ch1": "chapter one text"}
+
+
 @pytest.mark.asyncio
 async def test_pause_and_resume_hooks_persist_interaction_boundaries(tmp_path, monkeypatch):
     _use_store_root(monkeypatch, tmp_path)
@@ -160,6 +182,78 @@ async def test_pause_and_resume_hooks_persist_interaction_boundaries(tmp_path, m
     assert answered is not None
     assert answered.status == InteractionStatus.ANSWERED
     assert answered.user_answer == "B"
+
+
+@pytest.mark.asyncio
+async def test_choice_clarifying_composer_text_does_not_commit_answer(tmp_path, monkeypatch):
+    """Composer clarifying prose must not freeze a choice question as answered.
+
+    Regression for #1004: typing "what is this?" into the composer used to
+    persist as user_answer, after which mastery_grade could never map it to an
+    option and the gate stalled forever.
+    """
+    _use_store_root(monkeypatch, tmp_path)
+    pending = PendingQuestion(
+        question_id="stable-question",
+        knowledge_point_id="kp-1",
+        prompt="Compute (2e^{iπ/3})³",
+        question_type="choice",
+        expected_answer="A",
+        options=["A: -8", "B: -6", "C: 8", "D: -2"],
+    )
+    LearningStore().save(_progress_with_objective())
+    LearningService().register_question(
+        "path-1",
+        pending,
+        session_id="session-1",
+        turn_id="turn-2",
+    )
+    ask_user = {"questions": [{"id": "stable-question", "prompt": pending.prompt}]}
+    capability = MasteryLoopCapability()
+
+    await capability.on_user_pause(_context(), ask_user)
+    await capability.on_user_resume(
+        _context(),
+        ask_user,
+        reply_text="为什么 B 不是正确答案？",
+        answers=None,
+    )
+
+    still_open = LearningStore().get_interaction("path-1", "stable-question")
+    assert still_open is not None
+    assert still_open.status == InteractionStatus.AWAITING_INPUT
+    assert still_open.user_answer == ""
+
+
+@pytest.mark.asyncio
+async def test_choice_composer_option_label_still_commits(tmp_path, monkeypatch):
+    """Typing a readable option into the composer remains a valid commit."""
+    _use_store_root(monkeypatch, tmp_path)
+    pending = PendingQuestion(
+        question_id="stable-question",
+        knowledge_point_id="kp-1",
+        prompt="Which colour?",
+        question_type="choice",
+        expected_answer="B",
+        options=["A: red", "B: blue"],
+    )
+    LearningStore().save(_progress_with_objective())
+    LearningService().register_question(
+        "path-1",
+        pending,
+        session_id="session-1",
+        turn_id="turn-2",
+    )
+    ask_user = {"questions": [{"id": "stable-question", "prompt": "Which colour?"}]}
+    capability = MasteryLoopCapability()
+
+    await capability.on_user_pause(_context(), ask_user)
+    await capability.on_user_resume(_context(), ask_user, reply_text="选B", answers=None)
+
+    answered = LearningStore().get_interaction("path-1", "stable-question")
+    assert answered is not None
+    assert answered.status == InteractionStatus.ANSWERED
+    assert answered.user_answer == "选B"
 
 
 @pytest.mark.asyncio

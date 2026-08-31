@@ -148,7 +148,7 @@ test("resolveKnowledgeIndexFailure routes embedding configuration failures to em
   );
 
   assert.equal(endpointFailure?.requiresModelChange, true);
-  assert.equal(endpointFailure?.settingsHref, "/settings/embedding");
+  assert.equal(endpointFailure?.settingsHref, "/settings/models#embedding");
 });
 
 test("taskFailureMessage keeps trace details out of the primary error", () => {
@@ -195,6 +195,14 @@ test("engine status follows the credential and install state", () => {
     providerConnectionStatus({ id: "graphrag", configured: false }),
     "unavailable",
   );
+  assert.equal(
+    providerConnectionStatus({
+      id: "lightrag-server",
+      configured: true,
+      setup_required: true,
+    }),
+    "needs_setup",
+  );
 });
 
 test("a MarginNote library shows devices instead of files and index versions", () => {
@@ -219,6 +227,7 @@ test("an ordinary knowledge base has no devices section", () => {
     "files",
     "add",
     "github",
+    "web",
     "versions",
     "settings",
   ]);

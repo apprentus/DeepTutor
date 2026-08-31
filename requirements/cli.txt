@@ -34,6 +34,7 @@ tenacity>=8.0.0
 # --- Data models & storage ---
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+jsonschema>=4.20.0,<5.0.0
 aiosqlite>=0.19.0
 
 # --- RAG (LlamaIndex) ---
@@ -52,9 +53,10 @@ python-docx>=1.1.0
 openpyxl>=3.1.0
 python-pptx>=1.0.0
 pypdf>=4.0.0
-pdfplumber>=0.11.0,<0.11.8  # 0.11.8+ pins pdfminer.six==20251230, conflicts with mineru (via raganything)
+pdfplumber>=0.11.0
 reportlab>=4.0.0
 defusedxml>=0.7.1
+youtube-transcript-api>=1.2.0,<2.0.0
 
 # --- Web search ---
 ddgs>=9.9.1

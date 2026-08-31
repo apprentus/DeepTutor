@@ -9,13 +9,20 @@ loses its grounding and the answer quietly gets worse.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from deeptutor.reading.catalog_store import ReadingCatalogStore
+from deeptutor.services.path_service import PathService
+from deeptutor.services.session.sqlite_store import SQLiteSessionStore
 from deeptutor.services.session.turn_runtime import (
     READING_SELECTION_MAX_CHARS,
+    TurnRuntimeManager,
     _reading_material_id,
     _reading_viewport,
     _request_snapshot_metadata,
+    _workspace_mode,
 )
 
 # ---------------------------------------------------------------------------
@@ -105,6 +112,7 @@ def _snapshot(payload: dict) -> dict:
         book_references=[],
         persona="",
         memory_references=[],
+        partner_group_references=[],
         llm_selection=None,
     )
     return metadata["request_snapshot"]
@@ -116,6 +124,32 @@ def test_open_material_is_persisted_with_the_user_message() -> None:
     assert snapshot["readingMaterialId"] == "0123456789abcdef"
 
 
+def test_workspace_mode_is_persisted_independently_of_the_action() -> None:
+    snapshot = _snapshot(
+        {
+            "workspace_mode": "immersive_reading",
+            "reading_material_id": "0123456789abcdef",
+        }
+    )
+    assert snapshot["workspaceMode"] == "immersive_reading"
+
+
+@pytest.mark.parametrize(
+    ("value", "capability", "expected"),
+    [
+        ("immersive_reading", "deep_research", "immersive_reading"),
+        ("mastery_path", "visualize", "mastery_path"),
+        (None, "immersive_reading", "immersive_reading"),
+        (None, "mastery_path", "mastery_path"),
+        ("unknown", "chat", ""),
+    ],
+)
+def test_workspace_mode_is_orthogonal_with_legacy_fallback(
+    value: object, capability: str, expected: str
+) -> None:
+    assert _workspace_mode(value, capability=capability) == expected
+
+
 def test_a_plain_chat_turn_carries_no_reading_key() -> None:
     assert "readingMaterialId" not in _snapshot({})
     assert "readingMaterialId" not in _snapshot({"reading_material_id": ""})
@@ -123,3 +157,42 @@ def test_a_plain_chat_turn_carries_no_reading_key() -> None:
 
 def test_a_bogus_id_is_not_persisted() -> None:
     assert "readingMaterialId" not in _snapshot({"reading_material_id": "../../etc"})
+
+
+@pytest.mark.asyncio
+async def test_empty_workspace_starts_in_no_material_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("DEEPTUTOR_HOME", str(tmp_path))
+    PathService.reset_instance()
+    try:
+        workspace = ReadingCatalogStore().create_workspace("Empty reading workspace")
+        runtime = TurnRuntimeManager(SQLiteSessionStore(tmp_path / "turns.sqlite3"))
+
+        async def _noop_run_turn(_execution) -> None:
+            return None
+
+        monkeypatch.setattr(runtime, "_run_turn", _noop_run_turn)
+        _session, turn = await runtime.start_turn(
+            {
+                "type": "start_turn",
+                "capability": "chat",
+                "workspace_mode": "immersive_reading",
+                "reading_workspace_id": workspace.workspace_id,
+                "content": "What can I read here?",
+                "tools": [],
+                "knowledge_bases": [],
+                "attachments": [],
+                "language": "en",
+                "config": {},
+            }
+        )
+
+        assert runtime._executions[turn["id"]].payload["reading_material_id"] == ""
+        detail = await runtime.store.get_session(_session["id"])
+        assert detail is not None
+        assert detail["preferences"]["workspace_mode"] == "immersive_reading"
+        assert detail["preferences"]["capability"] == "chat"
+    finally:
+        PathService.reset_instance()

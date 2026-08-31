@@ -18,7 +18,7 @@ import {
   READER_TURN_END_EVENT,
   type ReaderActionPayload,
 } from "@/lib/reading-reader-action";
-import { locatorFromHref } from "@/lib/reading-citations";
+import { citationTargetFromHref } from "@/lib/reading-citations";
 import {
   fetchExport,
   type AnnotationColor,
@@ -26,14 +26,15 @@ import {
 } from "@/lib/reading-api";
 import { AnnotationList } from "./AnnotationList";
 import { AnnotationPopover } from "./AnnotationPopover";
-import { MaterialPicker } from "./MaterialPicker";
+import { EpubDocumentView } from "./EpubDocumentView";
 import {
   PdfDocumentView,
   type JumpRequest,
   type SelectionPayload,
 } from "./PdfDocumentView";
-import { ReaderResizeHandle } from "./ReaderResizeHandle";
+import { ReadingExtensionBar } from "./ReadingExtensionBar";
 import { TextUnitView, unitLabel } from "./TextUnitView";
+import type { ReaderHeading } from "@/lib/reading-outline";
 
 /** Event the reader dispatches to prefill the composer from a selection. */
 export const READER_ASK_EVENT = "dt:reader-ask";
@@ -41,10 +42,23 @@ const AUTO_JUMP_KEY = "dt.reader.autoJump";
 
 export interface ReaderPaneProps {
   onClose: () => void;
+  /** User-owned navigation from the workspace's source outline. */
+  externalJump?: JumpRequest | null;
+  /**
+   * Headings the text view discovers in the open unit. Only the rendered
+   * document knows them, but the workspace navigator is where the reader
+   * looks for structure — so they are reported up rather than shown here.
+   */
+  onHeadingsChange?: (headings: ReaderHeading[]) => void;
+  onActiveHeadingChange?: (headingId: string | null) => void;
+  /** Heading the navigator asked to scroll to. */
+  headingJump?: { id: string; nonce: number } | null;
 }
 
 /**
- * The reading pane: document on the left of the chat, with its own annotations.
+ * The document surface of the Reading workspace, with its own annotations.
+ * Source navigation, tabs and the outline are owned by the workspace shell —
+ * this component renders one open document and everything anchored to it.
  *
  * Two behaviours are worth calling out because they were explicit product
  * decisions rather than defaults:
@@ -60,7 +74,13 @@ export interface ReaderPaneProps {
  *   write removes it again and surfaces the error. Waiting for a round trip
  *   before showing ink makes highlighting feel broken.
  */
-export function ReaderPane({ onClose }: ReaderPaneProps) {
+export function ReaderPane({
+  onClose,
+  externalJump = null,
+  onHeadingsChange,
+  onActiveHeadingChange,
+  headingJump = null,
+}: ReaderPaneProps) {
   const { t } = useTranslation();
   // Document + annotations live in the provider (workspace layout), so they
   // survive the remount that sending the first message causes.
@@ -89,7 +109,6 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
   // a layout bug rather than an affordance. An explicit true/false means the
   // user decided, and that wins from then on.
   const [annotationPanel, setAnnotationPanel] = useState<boolean | null>(null);
-  const [showOutline, setShowOutline] = useState(false);
   const [autoJump, setAutoJump] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [currentLocator, setCurrentLocator] = useState(1);
@@ -139,6 +158,25 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
     setJump({ locator, quote, nonce: nonceRef.current });
   }, []);
 
+  const navigateCitation = useCallback(
+    async (href: string | null | undefined) => {
+      const target = citationTargetFromHref(href);
+      if (!target) return false;
+      if (target.materialId && target.materialId !== material?.material_id) {
+        const opened = await openMaterial(target.materialId);
+        if (!opened) return true;
+      }
+      requestJump(target.locator);
+      return true;
+    },
+    [material?.material_id, openMaterial, requestJump],
+  );
+
+  useEffect(() => {
+    if (!externalJump) return;
+    requestJump(externalJump.locator, externalJump.quote);
+  }, [externalJump, requestJump]);
+
   useEffect(() => {
     const onReaderAction = (event: Event) => {
       const detail = (event as CustomEvent<ReaderActionPayload>).detail;
@@ -185,16 +223,15 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
         const answers = document.querySelectorAll('[role="article"]');
         const last = answers[answers.length - 1];
         const anchor = last?.querySelector<HTMLAnchorElement>(
-          'a[href^="#dt-locator-"]',
+          'a[href^="#dt-locator-"], a[href^="#dt-material-"]',
         );
-        const locator = locatorFromHref(anchor?.getAttribute("href"));
-        if (locator) requestJump(locator);
+        void navigateCitation(anchor?.getAttribute("href"));
       }, 120);
       return () => window.clearTimeout(timer);
     };
     window.addEventListener(READER_TURN_END_EVENT, onTurnEnd);
     return () => window.removeEventListener(READER_TURN_END_EVENT, onTurnEnd);
-  }, [autoJump, material, requestJump]);
+  }, [autoJump, material, navigateCitation]);
 
   /**
    * Citation clicks in assistant prose, intercepted in the CAPTURE phase.
@@ -214,17 +251,17 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
       if (event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
         return;
-      const target = event.target as HTMLElement | null;
-      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
-      const locator = locatorFromHref(anchor?.getAttribute("href"));
-      if (!locator) return;
+      const element = event.target as HTMLElement | null;
+      const anchor = element?.closest?.("a[href]") as HTMLAnchorElement | null;
+      const citation = citationTargetFromHref(anchor?.getAttribute("href"));
+      if (!citation) return;
       event.preventDefault();
       event.stopPropagation();
-      requestJump(locator);
+      void navigateCitation(anchor?.getAttribute("href"));
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, [requestJump]);
+  }, [navigateCitation]);
 
   // -- annotations ---------------------------------------------------------
 
@@ -245,6 +282,8 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
           quote: selection.quote,
           note,
           rects: selection.rects,
+          source_anchor: selection.sourceAnchor ?? "",
+          selectors: selection.selectors ?? [],
         },
         {
           annotation_id: temporaryId,
@@ -254,6 +293,8 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
           quote: selection.quote,
           note,
           rects: selection.rects,
+          source_anchor: selection.sourceAnchor ?? "",
+          selectors: selection.selectors ?? [],
           author: "user",
           created_at: now,
           updated_at: now,
@@ -309,15 +350,9 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
 
   const showAnnotations = annotationPanel ?? annotations.length > 0;
   const unitWord = material ? t(unitLabel(material.unit)) : "";
-  const outlineRows = useMemo(
-    () =>
-      (material?.outline ?? []).filter((row) => row.title.trim().length > 0),
-    [material],
-  );
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border-r border-[var(--border)] bg-[var(--background)]">
-      <ReaderResizeHandle />
       <header className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--border)] px-2.5">
         <FileText
           size={14}
@@ -335,14 +370,6 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
             <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[var(--muted-foreground)]">
               {unitWord} {currentLocator}/{material.unit_count}
             </span>
-            {outlineRows.length > 0 && (
-              <HeaderButton
-                icon={List}
-                label={t("Outline")}
-                active={showOutline}
-                onClick={() => setShowOutline((open) => !open)}
-              />
-            )}
             <HeaderButton
               icon={Crosshair}
               label={
@@ -371,15 +398,7 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
               // trigger too keeps it from being a button that does nothing.
               className="hidden lg:inline-flex"
             />
-            <HeaderButton
-              icon={X}
-              label={t("Close document")}
-              onClick={closeMaterial}
-            />
           </>
-        )}
-        {!material && (
-          <HeaderButton icon={X} label={t("Close reader")} onClick={onClose} />
         )}
       </header>
 
@@ -402,34 +421,16 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
         </div>
       )}
 
-      {showOutline && material && outlineRows.length > 0 && (
-        <nav className="dt-reader-scroll max-h-[34%] shrink-0 overflow-y-auto border-b border-[var(--border)] bg-[var(--muted)]/25 px-2 py-1.5">
-          <ul>
-            {outlineRows.map((row, index) => (
-              <li key={`${row.locator}-${index}`}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    requestJump(row.locator);
-                    setShowOutline(false);
-                  }}
-                  style={{ paddingLeft: `${6 + (row.level - 1) * 12}px` }}
-                  className="flex w-full items-baseline gap-2 rounded-md py-[3px] pr-2 text-left transition hover:bg-[var(--muted)]"
-                >
-                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--foreground)]">
-                    {row.title}
-                  </span>
-                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
-                    {row.locator}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
+      {material && (
+        <ReadingExtensionBar
+          materialId={material.material_id}
+          locator={currentLocator}
+          selection={selection?.quote}
+          onError={setError}
+        />
       )}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
           {loadingMaterial ? (
             <div className="flex h-full items-center justify-center gap-2 text-[12px] text-[var(--muted-foreground)]">
@@ -437,8 +438,32 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
               {t("Opening document…")}
             </div>
           ) : !material ? (
-            <MaterialPicker
-              onOpen={(candidate) => void openMaterial(candidate)}
+            <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+              <p className="text-[12.5px] text-[var(--muted-foreground)]">
+                {t("This document could not be opened.")}
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-[11.5px] font-medium text-[var(--primary)] underline-offset-2 hover:underline"
+              >
+                {t("Back to the library")}
+              </button>
+            </div>
+          ) : material.render_mode === "epub" ? (
+            <EpubDocumentView
+              materialId={material.material_id}
+              unitCount={material.unit_count}
+              unitRefs={material.unit_refs}
+              annotations={annotations}
+              jump={jump}
+              highlightedAnnotationId={activeAnnotationId}
+              onSelection={setSelection}
+              onAnnotationClick={(annotation) =>
+                setActiveAnnotationId(annotation.annotation_id)
+              }
+              onVisibleLocatorChange={handleVisibleLocator}
+              onError={setError}
             />
           ) : material.has_raw_view ? (
             <PdfDocumentView
@@ -458,6 +483,7 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
               materialId={material.material_id}
               unit={material.unit}
               unitCount={material.unit_count}
+              contentFormat={material.content_format}
               annotations={annotations}
               jump={jump}
               highlightedAnnotationId={activeAnnotationId}
@@ -466,6 +492,9 @@ export function ReaderPane({ onClose }: ReaderPaneProps) {
                 setActiveAnnotationId(annotation.annotation_id)
               }
               onVisibleLocatorChange={handleVisibleLocator}
+              onHeadingsChange={onHeadingsChange}
+              onActiveHeadingChange={onActiveHeadingChange}
+              headingJump={headingJump}
             />
           )}
         </div>
