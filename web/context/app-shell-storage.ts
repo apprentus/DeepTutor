@@ -58,6 +58,8 @@ export function writeStoredChatResponseTimeout(seconds: number): void {
 export const ACTIVE_SESSION_EVENT = "deeptutor:active-session";
 export const LANGUAGE_EVENT = "deeptutor:language";
 export const RESPONSE_LANGUAGE_EVENT = "deeptutor:response-language";
+/** Fired after login/logout so the app shell can re-read account languages. */
+export const SESSION_EVENT = "deeptutor:session";
 export const SIDEBAR_COLLAPSED_EVENT = "deeptutor:sidebar-collapsed";
 export const CODE_BLOCK_SETTINGS_EVENT = "deeptutor:code-block-settings";
 

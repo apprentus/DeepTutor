@@ -33,6 +33,7 @@ import {
   normalizeCodeBlockWrapLongLines,
   normalizeLanguage,
   resolveResponseLanguage,
+  SESSION_EVENT,
   readStoredActiveSessionId,
   readStoredCodeBlockShowLineNumbers,
   readStoredCodeBlockTheme,
@@ -99,53 +100,71 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // The saved languages live in the backend's ui settings, but only the
-    // settings route ever read them, so every other page started in English
-    // until the user changed it again in this browser. Adopt them once, and
-    // only when this browser has made no choice of its own — a local selection
-    // is the more specific signal and must win.
+    // The two language fields are not the same kind of state.
     //
-    // One fetch carries both fields: the interface locale and the
-    // reader-facing output language are stored together and are gated by the
-    // same "has this browser chosen yet?" question, so splitting them into two
-    // bootstraps would only give them a chance to disagree.
-    if (hasStoredLanguage()) return;
+    // Interface locale is a browser preference: adopt the server value only
+    // when this browser has never chosen, so a local selection wins.
+    //
+    // Model output language is account-level. The public endpoint returns
+    // null for it when there is no session (so a login-page visit cannot
+    // inherit the admin's French and then pin it in localStorage). Once a
+    // session exists the same URL returns the caller's own value, and we
+    // always write that through — even if localStorage already holds a
+    // leftover from a previous visitor on this browser.
+    //
+    // AppShell lives on the root layout, so a client-side login does not
+    // remount it. Re-run the same fetch on ``SESSION_EVENT`` (login/logout)
+    // or the account value only lands after a full refresh.
+    const syncFromServer = (signal?: AbortSignal) => {
+      const adoptInterface = !hasStoredLanguage();
+      void (async () => {
+        try {
+          const response = await apiFetch(apiUrl("/api/v1/settings/ui"), {
+            signal,
+            skipAuthRedirect: true,
+          });
+          if (!response.ok) return;
+          const payload = (await response.json()) as {
+            language?: unknown;
+            response_language?: unknown;
+          };
+          const interfaceLanguage =
+            payload.language === "zh" ||
+            payload.language === "en" ||
+            payload.language === "fr"
+              ? payload.language
+              : null;
+          if (adoptInterface && interfaceLanguage) {
+            writeStoredLanguage(interfaceLanguage);
+            setLanguageState(interfaceLanguage);
+          }
+          if (
+            payload.response_language === "zh" ||
+            payload.response_language === "en" ||
+            payload.response_language === "fr"
+          ) {
+            writeStoredResponseLanguage(payload.response_language);
+          } else if (adoptInterface && interfaceLanguage) {
+            // Pre-session (or a backend that predates the split): inherit
+            // the interface locale so the two fields cannot disagree.
+            writeStoredResponseLanguage(
+              resolveResponseLanguage(null, interfaceLanguage),
+            );
+          }
+        } catch {
+          // Offline or unauthenticated: keep the local default.
+        }
+      })();
+    };
+
     const controller = new AbortController();
-    void (async () => {
-      try {
-        const response = await apiFetch(apiUrl("/api/v1/settings/ui"), {
-          signal: controller.signal,
-          skipAuthRedirect: true,
-        });
-        if (!response.ok) return;
-        const payload = (await response.json()) as {
-          language?: unknown;
-          response_language?: unknown;
-        };
-        if (
-          payload.language !== "zh" &&
-          payload.language !== "en" &&
-          payload.language !== "fr"
-        )
-          return;
-        writeStoredLanguage(payload.language);
-        // A backend that predates the split sends no response_language;
-        // resolveResponseLanguage inherits the interface locale, matching what
-        // the server does for a legacy interface.json.
-        writeStoredResponseLanguage(
-          resolveResponseLanguage(
-            typeof payload.response_language === "string"
-              ? payload.response_language
-              : null,
-            payload.language,
-          ),
-        );
-        setLanguageState(payload.language);
-      } catch {
-        // Offline or unauthenticated: keep the local default.
-      }
-    })();
-    return () => controller.abort();
+    syncFromServer(controller.signal);
+    const onSession = () => syncFromServer();
+    window.addEventListener(SESSION_EVENT, onSession);
+    return () => {
+      controller.abort();
+      window.removeEventListener(SESSION_EVENT, onSession);
+    };
   }, []);
 
   useEffect(() => {

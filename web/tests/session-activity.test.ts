@@ -33,7 +33,6 @@ function snapshot(
     content: "",
     enabledTools: [],
     knowledgeBases: [],
-    language: "en",
     ...fields,
   };
 }

@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 
 
 def test_require_auth_is_async_def() -> None:
-    from deeptutor.api.routers.auth import require_admin, require_auth
+    from deeptutor.api.routers.auth import optional_auth, require_admin, require_auth
 
     assert inspect.iscoroutinefunction(require_auth), (
         "require_auth must be async — a sync dep is run in a threadpool whose "
@@ -35,6 +35,10 @@ def test_require_auth_is_async_def() -> None:
     )
     assert inspect.iscoroutinefunction(require_admin), (
         "require_admin must be async for the same reason."
+    )
+    assert inspect.iscoroutinefunction(optional_auth), (
+        "optional_auth must be async for the same reason — GET /settings/ui "
+        "uses it to install the caller so their own preferences are read."
     )
 
 
@@ -196,3 +200,49 @@ def test_path_service_resolves_per_user_workspace_through_dependency(monkeypatch
         "ContextVar mutation in require_auth is not reaching the endpoint — "
         "see #481."
     )
+
+
+def test_optional_auth_does_not_401_without_a_token(monkeypatch) -> None:
+    """Public routes stay reachable; the current user is simply unset."""
+    from deeptutor.api.routers import auth as auth_router
+    from deeptutor.multi_user.context import get_current_user_or_none
+
+    monkeypatch.setattr(auth_router, "AUTH_ENABLED", True)
+
+    app = FastAPI()
+
+    @app.get("/pre-session")
+    async def pre_session(_=Depends(auth_router.optional_auth)) -> dict:
+        return {"seen": get_current_user_or_none() is not None}
+
+    with TestClient(app) as client:
+        resp = client.get("/pre-session")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"seen": False}
+
+
+def test_optional_auth_installs_the_caller_when_a_token_is_present(monkeypatch) -> None:
+    from deeptutor.api.routers import auth as auth_router
+    from deeptutor.multi_user.context import get_current_user_or_none
+    from deeptutor.services.auth import TokenPayload
+
+    monkeypatch.setattr(auth_router, "AUTH_ENABLED", True)
+    monkeypatch.setattr(
+        auth_router,
+        "decode_token",
+        lambda _t: TokenPayload(username="alice", role="user", user_id="u_alice"),
+    )
+
+    app = FastAPI()
+
+    @app.get("/pre-session")
+    async def pre_session(_=Depends(auth_router.optional_auth)) -> dict:
+        user = get_current_user_or_none()
+        return {"seen": None if user is None else user.username}
+
+    with TestClient(app) as client:
+        resp = client.get("/pre-session", headers={"Authorization": "Bearer test-token"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"seen": "alice"}

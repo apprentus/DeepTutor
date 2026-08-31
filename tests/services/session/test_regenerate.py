@@ -195,7 +195,10 @@ class TestRegenerateLastTurn:
         assert payload["capability"] == "chat"
         assert payload["tools"] == ["rag"]
         assert payload["knowledge_bases"] == ["kb1"]
-        assert payload["language"] == "en"
+        # Stale session-preference language must not be replayed: replies
+        # follow the current account setting, which start_turn resolves
+        # when the field is left unset.
+        assert "language" not in payload
         assert payload["attachments"] == [{"type": "file", "filename": "a.pdf"}]
         assert payload["config"]["_persist_user_message"] is False
         assert payload["config"]["_regenerate"] is True
@@ -204,6 +207,32 @@ class TestRegenerateLastTurn:
         remaining = asyncio.run(store.get_messages(sid))
         assert [m["id"] for m in remaining] == [user_id]
         assert assistant_id is not None and assistant_id not in {m["id"] for m in remaining}
+
+    def test_stale_session_language_is_not_replayed(self, store: SQLiteSessionStore) -> None:
+        """A past turn's language must not pin later retries.
+
+        Session preferences record whatever language the last turn used. If
+        regenerate copied that back into the payload, an account that had
+        since switched (or never chose French at all) would keep replying
+        in the old language.
+        """
+        session = asyncio.run(store.create_session())
+        sid = session["id"]
+        asyncio.run(
+            store.update_session_preferences(
+                sid,
+                {"capability": "chat", "language": "fr"},
+            )
+        )
+        asyncio.run(store.add_message(sid, role="user", content="Hello"))
+        asyncio.run(store.add_message(sid, role="assistant", content="Bonjour"))
+        runtime = TurnRuntimeManager(store=store)
+        recorder = _FakeStartTurnRecorder()
+
+        with patch.object(runtime, "start_turn", new=recorder):
+            asyncio.run(runtime.regenerate_last_turn(sid))
+
+        assert "language" not in recorder.calls[0]
 
     def test_replays_book_references_from_request_snapshot(self, store: SQLiteSessionStore) -> None:
         sid, _, _ = _seed_session(

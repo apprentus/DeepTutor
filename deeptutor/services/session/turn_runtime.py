@@ -1125,7 +1125,12 @@ class TurnRuntimeManager:
             if overrides.get("knowledge_bases") is not None
             else preferences.get("knowledge_bases") or []
         )
-        language = str(overrides.get("language") or preferences.get("language") or "en")
+        # Deliberately no fallback to session preferences: the preference is
+        # just the language of a past turn, and replies follow the *current*
+        # account-level setting — leaving the field unset lets start_turn
+        # resolve it from the caller's interface settings. An explicit
+        # override still wins.
+        language = str(overrides.get("language") or "")
 
         config: dict[str, Any] = dict(overrides.get("config") or {})
         config.update(
@@ -1154,7 +1159,6 @@ class TurnRuntimeManager:
             "content": str(last_user.get("content", "") or ""),
             "tools": tools,
             "knowledge_bases": knowledge_bases,
-            "language": language,
             "attachments": list(last_user.get("attachments") or []),
             "notebook_references": list(
                 overrides.get("notebook_references")
@@ -1183,6 +1187,8 @@ class TurnRuntimeManager:
             ),
             "config": config,
         }
+        if language:
+            payload["language"] = language
         if llm_selection:
             payload["llm_selection"] = llm_selection
         return await self.start_turn(payload)

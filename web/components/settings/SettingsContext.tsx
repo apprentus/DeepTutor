@@ -650,6 +650,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setTheme(payload.ui.theme);
       setLanguage(payload.ui.language);
       setResponseLanguage(payload.ui.response_language ?? payload.ui.language);
+      // Account-level languages must overwrite whatever a pre-session
+      // bootstrap left in localStorage (the admin-scope leak that used to
+      // make every visitor reply in French). The helpers emit the storage
+      // events the app shell and chat already listen to.
+      writeStoredLanguage(payload.ui.language);
+      writeStoredResponseLanguage(
+        payload.ui.response_language ?? payload.ui.language,
+      );
       // Writes the backend-loaded values into app-shell storage and dispatches
       // the code-block settings event; AppShellContext (the single source) picks
       // them up, so no separate copy needs seeding here.

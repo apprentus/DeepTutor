@@ -78,11 +78,14 @@ async def test_response_language_accepts_french(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """French model output can be selected independently of the UI language."""
+    from deeptutor.services import auth as auth_service
     from deeptutor.services.settings import interface_settings
 
     settings_file = tmp_path / "interface.json"
     monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
     monkeypatch.setattr(interface_settings, "_interface_settings_file", lambda: settings_file)
+    # These tests talk to the file directly, with no request user.
+    monkeypatch.setattr(auth_service, "AUTH_ENABLED", False)
 
     response = await settings_router.update_ui_settings(
         settings_router.UISettingsUpdate(language="en", response_language="fr")
@@ -101,11 +104,13 @@ async def test_interface_language_accepts_french(
 ) -> None:
     """French is a full interface language: it persists and both readers
     return it."""
+    from deeptutor.services import auth as auth_service
     from deeptutor.services.settings import interface_settings
 
     settings_file = tmp_path / "interface.json"
     monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
     monkeypatch.setattr(interface_settings, "_interface_settings_file", lambda: settings_file)
+    monkeypatch.setattr(auth_service, "AUTH_ENABLED", False)
 
     response = await settings_router.update_ui_settings(
         settings_router.UISettingsUpdate(language="fr")
@@ -1455,6 +1460,107 @@ def test_get_ui_settings_is_public_without_auth(monkeypatch: pytest.MonkeyPatch,
     payload = response.json()
     assert payload["language"] == "zh"
     assert payload["theme"] == "dark"
+
+
+def test_anonymous_ui_read_masks_admin_response_language(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """An unauthenticated visitor must not inherit the admin's reply language.
+
+    GET /settings/ui is public so the login page can paint. With no session
+    the path service falls back to the admin-scope ``interface.json`` — the
+    same file that once had ``response_language: fr`` and made every new
+    Encore visitor reply in French. Theme and interface locale are fine to
+    leak (they are the deployment's look); the model-output language is not.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from deeptutor.api.routers import auth as auth_router
+
+    settings_file = tmp_path / "interface.json"
+    monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
+    monkeypatch.setattr(auth_router, "AUTH_ENABLED", True)
+    settings_router.save_ui_settings(
+        {
+            **settings_router.DEFAULT_UI_SETTINGS,
+            "theme": "dark",
+            "language": "en",
+            "response_language": "fr",
+        }
+    )
+
+    app = FastAPI()
+    app.include_router(settings_router.public_router, prefix="/api/v1/settings")
+    payload = TestClient(app).get("/api/v1/settings/ui").json()
+
+    assert payload["language"] == "en"
+    assert payload["theme"] == "dark"
+    assert payload["response_language"] is None
+
+
+def test_authenticated_ui_read_returns_caller_response_language(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A logged-in caller must see their own reply language, not a mask."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from deeptutor.api.routers import auth as auth_router
+    from deeptutor.services.auth import TokenPayload
+
+    settings_file = tmp_path / "interface.json"
+    monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
+    monkeypatch.setattr(auth_router, "AUTH_ENABLED", True)
+    monkeypatch.setattr(
+        auth_router,
+        "decode_token",
+        lambda _t: TokenPayload(username="alice", role="user", user_id="u_alice"),
+    )
+    settings_router.save_ui_settings(
+        {
+            **settings_router.DEFAULT_UI_SETTINGS,
+            "language": "en",
+            "response_language": "zh",
+        }
+    )
+
+    app = FastAPI()
+    app.include_router(settings_router.public_router, prefix="/api/v1/settings")
+    payload = TestClient(app).get(
+        "/api/v1/settings/ui",
+        headers={"Authorization": "Bearer test-token"},
+    ).json()
+
+    assert payload["language"] == "en"
+    assert payload["response_language"] == "zh"
+
+
+def test_auth_disabled_ui_read_keeps_response_language(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Single-user mode has no visitor/admin split — return the file as-is."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from deeptutor.api.routers import auth as auth_router
+
+    settings_file = tmp_path / "interface.json"
+    monkeypatch.setattr(settings_router, "_settings_file", lambda: settings_file)
+    monkeypatch.setattr(auth_router, "AUTH_ENABLED", False)
+    settings_router.save_ui_settings(
+        {
+            **settings_router.DEFAULT_UI_SETTINGS,
+            "language": "en",
+            "response_language": "fr",
+        }
+    )
+
+    app = FastAPI()
+    app.include_router(settings_router.public_router, prefix="/api/v1/settings")
+    payload = TestClient(app).get("/api/v1/settings/ui").json()
+
+    assert payload["response_language"] == "fr"
 
 
 def test_auth_disabled_settings_endpoint_does_not_expose_provider_secrets(

@@ -288,6 +288,34 @@ async def require_auth(
     return payload
 
 
+async def optional_auth(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    dt_token: str | None = Cookie(default=None, alias=_COOKIE_NAME),
+) -> TokenPayload | None:
+    """Best-effort authentication for endpoints that are public by design.
+
+    Public routes sometimes still need to know who is asking when a session
+    *does* exist — GET /settings/ui serves the login page anonymously, but a
+    logged-in caller must get their own preferences, not the admin-scope file
+    that the anonymous fallback resolves to. ``require_auth`` can't do that
+    job (it 401s the anonymous case), so this installs the current user when
+    a valid token is present and otherwise leaves the anonymous context in
+    place instead of raising.
+
+    Async for the same reason as ``require_auth``: ``set_current_user`` must
+    run in the request's own asyncio context (#481).
+    """
+    if not AUTH_ENABLED:
+        _install_current_user(None)
+        return None
+
+    token = _extract_token(authorization, dt_token)
+    payload = decode_token(token) if token else None
+    if payload:
+        _install_current_user(payload)
+    return payload
+
+
 class _WsAuthFailed:
     """Sentinel: ws_require_auth failed and closed the WebSocket."""
 

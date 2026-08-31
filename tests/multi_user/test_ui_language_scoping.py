@@ -57,3 +57,23 @@ def test_response_language_is_scoped_independently_per_user(mu_isolated_root, as
     with as_user("u_alice", role="user"):
         assert get_ui_language() == "zh"
         assert get_response_language() == "en"
+
+
+def test_response_language_does_not_inherit_admin_file_without_a_caller(
+    mu_isolated_root, monkeypatch
+):
+    """A turn with no user context must not pick up the admin's reply language.
+
+    ``get_path_service()`` falls back to the admin-scope file when the
+    ContextVar is unset. That file is where an admin's ``response_language:
+    fr`` once lived, and every unscoped ``get_response_language()`` call
+    then injected French into the prompt. Default to English instead.
+    """
+    from deeptutor.services import auth as auth_service
+
+    monkeypatch.setattr(auth_service, "AUTH_ENABLED", True)
+    admin_settings = mu_isolated_root / "data" / "user" / "settings" / "interface.json"
+    admin_settings.parent.mkdir(parents=True, exist_ok=True)
+    admin_settings.write_text(json.dumps({"language": "en", "response_language": "fr"}))
+
+    assert get_response_language() == "en"

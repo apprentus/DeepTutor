@@ -13,13 +13,14 @@ import logging
 import time
 from typing import Any, List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-from deeptutor.multi_user.context import get_current_user
+from deeptutor.api.routers.auth import optional_auth
+from deeptutor.multi_user.context import get_current_user, get_current_user_or_none
 from deeptutor.multi_user.model_access import allowed_llm_options
 from deeptutor.services.codebuddy_auth import get_codebuddy_auth_service
 from deeptutor.services.codex_auth import (
@@ -1389,7 +1390,7 @@ PRESESSION_UI_FIELDS = ("theme", "language", "response_language")
 
 
 @public_router.get("/ui")
-async def get_ui_settings():
+async def get_ui_settings(_auth: object = Depends(optional_auth)):
     """Return the pre-session UI preferences: theme and the two languages.
 
     Public by design, which is why it is a narrow projection rather than the
@@ -1398,12 +1399,24 @@ async def get_ui_settings():
     during bootstrap. Theme rides along so those pages can paint in the right
     one instead of flashing.
 
+    Auth here is best-effort, not absent: a logged-in caller must read their
+    *own* preferences, while an anonymous one falls back to the admin-scope
+    file. That fallback is fine for the interface locale and theme (the login
+    page following the deployment's look is the point), but not for
+    ``response_language`` — the admin's personal model-output language says
+    nothing about a visitor, and serving it is how one admin preference once
+    turned a whole deployment French. Pre-session it is masked to null and
+    the client inherits the interface locale instead.
+
     Everything else under ``ui`` (sidebar_nav_order, enabled_optional_tools,
     chat_response_timeout, …) describes what the deployment has turned on, so
     it stays behind auth: read it from the ``ui`` key of GET /settings.
     """
     settings = load_ui_settings()
-    return {field: settings.get(field) for field in PRESESSION_UI_FIELDS}
+    payload = {field: settings.get(field) for field in PRESESSION_UI_FIELDS}
+    if get_current_user_or_none() is None:
+        payload["response_language"] = None
+    return payload
 
 
 @router.put("/ui")

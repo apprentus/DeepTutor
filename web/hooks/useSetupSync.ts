@@ -25,12 +25,13 @@ function asTheme(value: unknown): Theme | null {
 /**
  * Re-read UI preferences after the assistant changes them from within chat.
  *
- * The browser is the source of truth for language and theme: the app shell
- * reads them from localStorage and only consults the server when localStorage
- * holds nothing at all (see `AppShellContext`). That is right for a person
- * switching languages in one tab, but it means a change the assistant makes
- * on the server is invisible here — the user is told "done" while the
- * interface stays exactly as it was, which reads as a broken promise.
+ * The browser is the source of truth for the *interface* locale: the app
+ * shell reads it from localStorage and only consults the server when
+ * localStorage holds nothing at all. Model output language is account-level
+ * and is re-read after login. Either way, a change the assistant makes on
+ * the server is invisible here unless we refresh — the user is told "done"
+ * while the interface stays exactly as it was, which reads as a broken
+ * promise.
  *
  * So the backend's `apply_setting` tags its result with `setup_applied`, and
  * this hook treats that tag as "your cached copy is stale": it re-reads the
@@ -64,7 +65,11 @@ export function useSetupSync(
           theme?: unknown;
         };
         if (cancelled) return;
-        if (payload.language === "zh" || payload.language === "en") {
+        if (
+          payload.language === "zh" ||
+          payload.language === "en" ||
+          payload.language === "fr"
+        ) {
           writeStoredLanguage(payload.language);
           writeStoredResponseLanguage(
             resolveResponseLanguage(

@@ -1,4 +1,5 @@
 import { apiFetch, apiUrl, setRuntimeAuthEnabled } from "@/lib/api";
+import { SESSION_EVENT } from "@/context/app-shell-storage";
 
 // Auth state is resolved at runtime from the backend (`/api/v1/auth/status`),
 // not from a build-time/env constant: the browser bundle never sees
@@ -53,7 +54,15 @@ export async function login(
       skipAuthRedirect: true,
     });
 
-    if (res.ok) return { ok: true };
+    if (res.ok) {
+      // AppShell is mounted on the root layout, so it does not remount on
+      // the client-side redirect after login. Tell it the session changed
+      // so it can re-read the caller's own response language.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event(SESSION_EVENT));
+      }
+      return { ok: true };
+    }
 
     const data = await res.json().catch(() => ({}));
     return { ok: false, error: extractDetail(data.detail) ?? "Login failed" };
@@ -132,5 +141,8 @@ export async function logout(): Promise<void> {
     });
   } catch {
     // Ignore — we'll redirect regardless
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SESSION_EVENT));
   }
 }

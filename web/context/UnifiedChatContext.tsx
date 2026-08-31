@@ -137,7 +137,6 @@ export interface MessageRequestSnapshot {
   capability?: string | null;
   enabledTools: string[];
   knowledgeBases: string[];
-  language: string;
   attachments?: MessageAttachment[];
   config?: Record<string, unknown>;
   notebookReferences?: NotebookReferencePayload[];
@@ -992,7 +991,6 @@ function hydrateRequestSnapshot(
         : message.capability || "",
     enabledTools: asStringArray(stored.enabledTools),
     knowledgeBases: asStringArray(stored.knowledgeBases),
-    language: typeof stored.language === "string" ? stored.language : "en",
     ...(attachments.length ? { attachments } : {}),
   };
 
@@ -1427,9 +1425,9 @@ export function UnifiedChatProvider({
           typeof session.preferences?.persona === "string"
             ? session.preferences.persona
             : "",
-        // Model output language is account-level state. Historical sessions
-        // may have stale persisted preferences, so new turns follow the
-        // current response-language setting rather than their original value.
+        // Display hint only (quiz cards etc.). The language actually used
+        // for replies is resolved server-side from the account settings;
+        // this local value is never sent with a turn.
         language: readStoredResponseLanguage(),
         selectedBranches: normalizeSelectedBranches(
           session.preferences?.selected_branches,
@@ -1582,8 +1580,10 @@ export function UnifiedChatProvider({
           : session.llmSelection;
       const effectiveMasteryPathId =
         replaySnapshot?.masteryPathId ?? session.masteryPathId;
-      const effectiveLanguage =
-        replaySnapshot?.language ?? readStoredResponseLanguage();
+      // Account-level reply language, synced into localStorage after login.
+      // Sent on the turn so a leftover admin-scope file on the server cannot
+      // override what this account (and this browser after sync) chose.
+      const effectiveLanguage = readStoredResponseLanguage();
       // Persona resolution: replay snapshot wins; then an explicit per-call
       // persona (quiz follow-up surface); then the session-level preference.
       // Always a string — "" means Default / no persona.
@@ -1614,7 +1614,6 @@ export function UnifiedChatProvider({
         capability: effectiveCapability,
         enabledTools: [...effectiveTools],
         knowledgeBases: [...effectiveKnowledgeBases],
-        language: effectiveLanguage,
         ...(effectiveAttachments?.length
           ? { attachments: effectiveAttachments }
           : {}),

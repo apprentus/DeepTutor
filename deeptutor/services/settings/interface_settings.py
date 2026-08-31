@@ -216,6 +216,19 @@ def get_ui_language(default: str = "en") -> str:
 
 
 def get_response_language(default: str = "en") -> str:
-    """Get the preferred reader-facing model output language."""
+    """Get the preferred reader-facing model output language.
+
+    This is account-level state. When multi-user auth is on and no caller
+    is installed, the path service falls back to the admin-scope
+    ``interface.json`` — the same file that once leaked an admin's French
+    into every unscoped read. A turn that lost its user context must not
+    inherit that; it takes ``default``. Single-user mode (auth off) has
+    no visitor/admin split, so the file is the account.
+    """
+    from deeptutor.multi_user.context import get_current_user_or_none
+    from deeptutor.services.auth import AUTH_ENABLED
+
+    if AUTH_ENABLED and get_current_user_or_none() is None:
+        return _normalize_language(default, "en")
     settings = get_ui_settings()
     return _normalize_language(settings.get("response_language"), default)
