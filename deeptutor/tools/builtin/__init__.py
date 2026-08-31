@@ -8,10 +8,13 @@ import logging
 import sys
 from typing import Any
 
+from deeptutor.capabilities.course_study import COURSE_STUDY_TOOL_TYPES
 from deeptutor.capabilities.ima import IMA_TOOL_TYPES
 from deeptutor.capabilities.marginnote4 import MARGINNOTE_TOOL_TYPES
 from deeptutor.capabilities.mastery import MASTERY_TOOL_TYPES
 from deeptutor.capabilities.obsidian import OBSIDIAN_TOOL_TYPES
+from deeptutor.capabilities.partner_authoring import PARTNER_AUTHORING_TOOL_TYPES
+from deeptutor.capabilities.partner_group import PARTNER_GROUP_TOOL_TYPES
 from deeptutor.capabilities.reading import READING_TOOL_TYPES
 from deeptutor.capabilities.setup import SETUP_TOOL_TYPES
 from deeptutor.capabilities.solve import SOLVE_TOOL_TYPES
@@ -29,6 +32,7 @@ from deeptutor.tools.partner_memory import (
 from deeptutor.tools.prompting import load_prompt_hints
 from deeptutor.tools.question_bank import ACTIONS as QB_ACTIONS
 from deeptutor.tools.question_bank import FILTERS as QB_FILTERS
+from deeptutor.visualizers.tool import VISUALIZER_TOOL_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -340,10 +344,14 @@ class CodeExecutionTool(_PromptHintsMixin, BaseTool):
             name="code_execution",
             description=(
                 "Run a code snippet in an isolated sandbox and return its "
-                "stdout/stderr. Pass complete, ready-to-run source in `code` "
-                "and pick `language` (python, c, or cpp). Use for calculation, "
-                "algorithm checking, and numerical verification — print results "
-                "to stdout. Not a substitute for explaining your reasoning."
+                "stdout/stderr plus any files generated in the workspace. Pass "
+                "complete, ready-to-run source in `code` and pick `language` "
+                "(python, c, or cpp). Use it for calculation, data processing, "
+                "and code-generated deliverables instead of embedding source in "
+                "an exec command. Preserve explicit quantities and scope; after "
+                "failure or a missing artifact, diagnose the cause and change "
+                "strategy rather than retrying identical code. Print concise "
+                "results to stdout."
             ),
             parameters=[
                 ToolParameter(
@@ -1729,6 +1737,9 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     GithubTool,
     AskUserTool,
     CronTool,
+    # Generic commit point for the visualization loop capability. It is only
+    # mounted while visualize mode is active.
+    *VISUALIZER_TOOL_TYPES,
     # Image → GeoGebra figure reconstruction. User-toggleable in chat; the
     # solve loop capability force-mounts it for diagram problems.
     GeoGebraAnalysisTool,
@@ -1758,6 +1769,16 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     # Self-configuration tools — globally registered; the setup capability
     # mounts them (additively) on a turn that is actually about configuration.
     *SETUP_TOOL_TYPES,
+    # Chat-native Partner profile drafting. The capability gates this tool to
+    # actual authoring requests; confirmation is handled by the Partner API.
+    *PARTNER_AUTHORING_TOOL_TYPES,
+    # Group-only Partner collaboration. The capability finish guard makes this
+    # a post-answer proposal; execution remains behind explicit user approval.
+    *PARTNER_GROUP_TOOL_TYPES,
+    # Course Study tools — globally registered; the course capability mounts
+    # them (additively) and binds the active course server-side, so they are
+    # inert on a turn that belongs to no course.
+    *COURSE_STUDY_TOOL_TYPES,
     # Partner-only memory + history tools. Globally registered so schemas/API
     # stay stable, but never mounted in product chat: the partner runtime
     # force-mounts them (and suppresses chat's read_memory/write_memory) on

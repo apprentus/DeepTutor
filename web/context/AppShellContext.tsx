@@ -54,6 +54,7 @@ interface AppShellContextValue {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   language: AppLanguage;
+  languageReady: boolean;
   setLanguage: (language: AppLanguage) => void;
   activeSessionId: string | null;
   setActiveSessionId: (sessionId: string | null) => void;
@@ -75,6 +76,7 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
   });
   // Always start with "en" to match SSR; hydrate from localStorage after mount
   const [language, setLanguageState] = useState<AppLanguage>("en");
+  const [languageReady, setLanguageReady] = useState(false);
   const [activeSessionId, setActiveSessionIdState] = useState<string | null>(
     () => readStoredActiveSessionId(),
   );
@@ -91,8 +93,6 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Hydrate client-only preferences after SSR-safe first render.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLanguageState(readStoredLanguage());
     setSidebarCollapsedState(readStoredSidebarCollapsed());
     setCodeBlockThemeState(readStoredCodeBlockTheme());
     setCodeBlockShowLineNumbersState(readStoredCodeBlockShowLineNumbers());
@@ -103,7 +103,9 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
     // The two language fields are not the same kind of state.
     //
     // Interface locale is a browser preference: adopt the server value only
-    // when this browser has never chosen, so a local selection wins.
+    // when this browser has never chosen, so a local selection wins. i18n
+    // stays disabled (`languageReady`) until that hydrate-or-fetch finishes,
+    // with a short fallback so a hung request cannot blank the UI.
     //
     // Model output language is account-level. The public endpoint returns
     // null for it when there is no session (so a login-page visit cannot
@@ -115,12 +117,37 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
     // AppShell lives on the root layout, so a client-side login does not
     // remount it. Re-run the same fetch on ``SESSION_EVENT`` (login/logout)
     // or the account value only lands after a full refresh.
-    const syncFromServer = (signal?: AbortSignal) => {
+    let cancelled = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | undefined;
+
+    const markReady = () => {
+      if (!cancelled) setLanguageReady(true);
+    };
+
+    const syncFromServer = (options: { initial: boolean }) => {
       const adoptInterface = !hasStoredLanguage();
+      const nextController = new AbortController();
+
+      if (options.initial && !adoptInterface) {
+        if (!cancelled) {
+          setLanguageState(readStoredLanguage());
+          setLanguageReady(true);
+        }
+      } else if (options.initial && adoptInterface) {
+        fallbackTimer = setTimeout(() => {
+          nextController.abort();
+          markReady();
+        }, 1_500);
+      }
+
+      controller?.abort();
+      controller = nextController;
+
       void (async () => {
         try {
           const response = await apiFetch(apiUrl("/api/v1/settings/ui"), {
-            signal,
+            signal: nextController.signal,
             skipAuthRedirect: true,
           });
           if (!response.ok) return;
@@ -136,7 +163,7 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
               : null;
           if (adoptInterface && interfaceLanguage) {
             writeStoredLanguage(interfaceLanguage);
-            setLanguageState(interfaceLanguage);
+            if (!cancelled) setLanguageState(interfaceLanguage);
           }
           if (
             payload.response_language === "zh" ||
@@ -153,16 +180,22 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
           }
         } catch {
           // Offline or unauthenticated: keep the local default.
+        } finally {
+          if (options.initial) {
+            if (fallbackTimer) clearTimeout(fallbackTimer);
+            markReady();
+          }
         }
       })();
     };
 
-    const controller = new AbortController();
-    syncFromServer(controller.signal);
-    const onSession = () => syncFromServer();
+    syncFromServer({ initial: true });
+    const onSession = () => syncFromServer({ initial: false });
     window.addEventListener(SESSION_EVENT, onSession);
     return () => {
-      controller.abort();
+      cancelled = true;
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      controller?.abort();
       window.removeEventListener(SESSION_EVENT, onSession);
     };
   }, []);
@@ -265,6 +298,7 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
   const setLanguage = useCallback((nextLanguage: AppLanguage) => {
     writeStoredLanguage(nextLanguage);
     setLanguageState(nextLanguage);
+    setLanguageReady(true);
   }, []);
 
   const setActiveSessionId = useCallback((sessionId: string | null) => {
@@ -298,6 +332,7 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
       theme,
       setTheme,
       language,
+      languageReady,
       setLanguage,
       activeSessionId,
       setActiveSessionId,
@@ -316,6 +351,7 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
       codeBlockTheme,
       codeBlockWrapLongLines,
       language,
+      languageReady,
       setActiveSessionId,
       setCodeBlockShowLineNumbers,
       setCodeBlockTheme,

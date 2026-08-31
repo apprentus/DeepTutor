@@ -25,6 +25,7 @@ import {
   resumePartnerSession,
 } from "@/lib/partners-api";
 import { freshPartnerSessionKey } from "@/lib/partner-session";
+import { createPartnerDraftPublisher } from "@/lib/partner-chat-draft";
 import { ReconnectingWebSocket } from "@/lib/reconnecting-websocket";
 import type { ExportableMessage } from "@/lib/chat-export";
 import type { StreamEvent } from "@/lib/unified-ws";
@@ -50,10 +51,19 @@ const AssistantResponse = dynamic(
 interface ChatMsg {
   role: "user" | "assistant";
   content: string;
+  activityId?: string;
+  channel?: string;
   attachments?: PartnerMessageAttachment[];
   /** Full turn event stream (live turns only; restored history has none). */
   events?: StreamEvent[];
   error?: boolean;
+}
+
+interface ExternalDraft {
+  activityId: string;
+  channel?: string;
+  events: StreamEvent[];
+  content: string;
 }
 
 interface PartnerMessageAttachment {
@@ -225,6 +235,7 @@ export default function PartnerChat({
     events: StreamEvent[];
     content: string;
   } | null>(null);
+  const [externalDrafts, setExternalDrafts] = useState<ExternalDraft[]>([]);
   const connectionRef = useRef<ReconnectingWebSocket | null>(null);
   // Mirror the active session into a ref so the socket's onopen (which closes
   // over the effect's first render) attaches to the CURRENT session.
@@ -242,15 +253,20 @@ export default function PartnerChat({
     scrollToBottom,
     handleScroll,
   } = useChatAutoScroll({
-    hasMessages: messages.length > 0 || draft !== null,
-    isStreaming: streaming,
+    hasMessages:
+      messages.length > 0 || draft !== null || externalDrafts.length > 0,
+    isStreaming: streaming || externalDrafts.length > 0,
     // PartnerComposer sits outside the scrollport and currently exposes no
     // measured-height callback. Sending explicitly re-arms the shared hook
     // below, while streamed content changes drive its normal pin logic.
     composerHeight: 0,
-    messageCount: messages.length + (draft ? 1 : 0),
-    lastMessageContent: draft?.content ?? lastMessage?.content,
-    lastEventCount: draft?.events.length ?? lastMessage?.events?.length,
+    messageCount: messages.length + (draft ? 1 : 0) + externalDrafts.length,
+    lastMessageContent:
+      externalDrafts.at(-1)?.content ?? draft?.content ?? lastMessage?.content,
+    lastEventCount:
+      externalDrafts.at(-1)?.events.length ??
+      draft?.events.length ??
+      lastMessage?.events?.length,
   });
 
   const tryAttach = useCallback(() => {
@@ -271,35 +287,35 @@ export default function PartnerChat({
     }
   }, []);
 
-  // Restore the active session's history (scoped to it — the cross-channel
-  // "memory feel" is served by the read_memory tool now, not by merging raw
-  // transcripts). Re-runs when the page switches the active session (resume /
-  // branch). Persisted turn events rehydrate the collapsible "Done" activity.
+  // Restore the account-scoped Partner activity timeline across web and IM
+  // sessions. Session keys still isolate model context; merging happens only
+  // at this presentation layer. Persisted events rehydrate the same trace UI.
   useEffect(() => {
     if (!sessionKey) return;
     let cancelled = false;
     historyReadyRef.current = false;
     attachedRef.current = false;
-    void getPartnerHistory(partnerId, {
-      sessionKey,
-      limit: 60,
-    })
+    void getPartnerHistory(partnerId, { limit: 60 })
       .then((history) => {
         if (cancelled) return;
         shouldAutoScrollRef.current = true;
         setMessages(
           history
             .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              attachments: normalizeHistoryAttachments(
-                (m as Record<string, unknown>).attachments,
-              ),
-              events: normalizeHistoryEvents(
-                (m as Record<string, unknown>).events,
-              ),
-            })),
+            .map((m) => {
+              const activityId =
+                typeof m.metadata?.activity_id === "string"
+                  ? m.metadata.activity_id
+                  : undefined;
+              return {
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                activityId,
+                channel: m.channel,
+                attachments: normalizeHistoryAttachments(m.attachments),
+                events: normalizeHistoryEvents(m.events),
+              };
+            }),
         );
         historyReadyRef.current = true;
         tryAttach();
@@ -321,6 +337,7 @@ export default function PartnerChat({
       setConnected(false);
       setStreaming(false);
       setDraft(null);
+      setExternalDrafts([]);
       return;
     }
 
@@ -328,21 +345,104 @@ export default function PartnerChat({
     // Authoritative live-turn accumulator. Lives in the effect scope so
     // connection handlers can mutate it cheaply; renders see snapshots only.
     let live: { events: StreamEvent[]; content: string } | null = null;
-    const publish = () => {
-      setDraft(
-        live ? { events: [...live.events], content: live.content } : null,
+    const externalLive = new Map<string, ExternalDraft>();
+    const publishExternal = () => {
+      setExternalDrafts(
+        Array.from(externalLive.values(), (item) => ({
+          ...item,
+          events: [...item.events],
+        })),
       );
     };
+    // Local providers can emit many tokens between animation frames. Publish
+    // one immutable snapshot per frame so React never enters an update storm.
+    const {
+      publish,
+      publishNow,
+      cancel: cancelPendingPublish,
+    } = createPartnerDraftPublisher(() => live, setDraft);
 
     const handleMessage = (message: MessageEvent) => {
       let data: {
         type: string;
         content?: string;
         event?: StreamEvent;
+        activity_id?: string;
+        channel?: string;
+        external?: boolean;
       };
       try {
         data = JSON.parse(String(message.data));
       } catch {
+        return;
+      }
+      if (data.external && data.activity_id) {
+        const activityId = data.activity_id;
+        if (data.type === "user_echo") {
+          externalLive.set(activityId, {
+            activityId,
+            channel: data.channel,
+            events: [],
+            content: "",
+          });
+          setMessages((msgs) =>
+            msgs.some(
+              (msg) => msg.activityId === activityId && msg.role === "user",
+            )
+              ? msgs
+              : [
+                  ...msgs,
+                  {
+                    role: "user",
+                    content: data.content ?? "",
+                    activityId,
+                    channel: data.channel,
+                  },
+                ],
+          );
+          publishExternal();
+        } else if (data.type === "stream_event" && data.event) {
+          const current = externalLive.get(activityId) ?? {
+            activityId,
+            channel: data.channel,
+            events: [],
+            content: "",
+          };
+          current.events.push(data.event);
+          if (shouldAppendEventContent(data.event)) {
+            current.content += data.event.content;
+          } else if (isNarrationMarker(data.event)) {
+            current.content = recomputeAnswerContent(current.events);
+          }
+          externalLive.set(activityId, current);
+          publishExternal();
+        } else if (data.type === "content") {
+          const finished = externalLive.get(activityId);
+          externalLive.delete(activityId);
+          setMessages((msgs) =>
+            msgs.some(
+              (msg) =>
+                msg.activityId === activityId && msg.role === "assistant",
+            )
+              ? msgs
+              : [
+                  ...msgs,
+                  {
+                    role: "assistant",
+                    content: data.content || finished?.content || "",
+                    activityId,
+                    channel: data.channel,
+                    events: finished?.events.length
+                      ? finished.events
+                      : undefined,
+                  },
+                ],
+          );
+          publishExternal();
+        } else if (data.type === "done" || data.type === "stopped") {
+          externalLive.delete(activityId);
+          publishExternal();
+        }
         return;
       }
       if (data.type === "resuming") {
@@ -389,11 +489,11 @@ export default function PartnerChat({
             events: finished?.events.length ? finished.events : undefined,
           },
         ]);
-        publish();
+        publishNow();
       } else if (data.type === "done") {
         setStreaming(false);
         live = null;
-        publish();
+        publishNow();
       } else if (data.type === "stopped") {
         // Server cancelled the turn (/stop or the stop button). Keep any
         // partial answer the user already saw; drop the live draft.
@@ -410,7 +510,7 @@ export default function PartnerChat({
           ]);
         }
         setStreaming(false);
-        publish();
+        publishNow();
       } else if (data.type === "proactive") {
         setMessages((msgs) => [
           ...msgs,
@@ -422,7 +522,7 @@ export default function PartnerChat({
           { role: "assistant", content: data.content ?? "Error", error: true },
         ]);
         live = null;
-        publish();
+        publishNow();
         setStreaming(false);
       }
     };
@@ -441,6 +541,8 @@ export default function PartnerChat({
         onDisconnect: () => {
           setConnected(false);
           setStreaming(false);
+          externalLive.clear();
+          setExternalDrafts([]);
         },
       },
       {
@@ -464,6 +566,9 @@ export default function PartnerChat({
     connection.start();
 
     return () => {
+      cancelPendingPublish();
+      externalLive.clear();
+      setExternalDrafts([]);
       window.removeEventListener("focus", wakeWhenActive);
       window.removeEventListener("online", wakeWhenActive);
       document.removeEventListener("visibilitychange", wakeWhenActive);
@@ -771,6 +876,34 @@ export default function PartnerChat({
                 </div>
               </div>
             )}
+
+            {externalDrafts.map((externalDraft) => (
+              <div
+                key={externalDraft.activityId}
+                className="flex items-start gap-2.5"
+              >
+                <PartnerAvatar
+                  name={partnerName}
+                  emoji={emoji}
+                  color={color}
+                  size={26}
+                />
+                <div className="min-w-0 flex-1">
+                  <AssistantActivity
+                    events={externalDraft.events}
+                    isStreaming
+                    content={externalDraft.content}
+                    className="mb-1.5"
+                    agentName={partnerName}
+                    showMark={false}
+                    headerClassName="min-h-[26px]"
+                  />
+                  {externalDraft.content ? (
+                    <AssistantResponse content={externalDraft.content} />
+                  ) : null}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

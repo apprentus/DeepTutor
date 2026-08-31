@@ -2,6 +2,7 @@
 
 BUILTIN_CAPABILITY_CLASSES: dict[str, str] = {
     "chat": "deeptutor.agents.chat.capability:ChatCapability",
+    "ask_questions": ("deeptutor.capabilities.ask_questions.capability:AskQuestionsCapability"),
     "deep_solve": "deeptutor.capabilities.solve.capability:DeepSolveCapability",
     "deep_question": "deeptutor.agents.question.capability:DeepQuestionCapability",
     "deep_research": "deeptutor.agents.research.capability:DeepResearchCapability",
@@ -9,4 +10,6 @@ BUILTIN_CAPABILITY_CLASSES: dict[str, str] = {
     "visualize": "deeptutor.agents.visualize.capability:VisualizeCapability",
     "mastery_path": "deeptutor.capabilities.mastery.capability:MasteryPathCapability",
     "immersive_reading": "deeptutor.capabilities.reading.mode:ImmersiveReadingCapability",
+    "course_study": "deeptutor.capabilities.course_study.mode:CourseStudyCapability",
+    "immersive_watching": "deeptutor.capabilities.watching.mode:ImmersiveWatchingCapability",
 }

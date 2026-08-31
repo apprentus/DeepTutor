@@ -33,7 +33,7 @@ import logging
 from pathlib import Path
 import re
 
-from deeptutor.reading.models import OutlineEntry, ReadingError, UnitKind
+from deeptutor.reading.models import OutlineEntry, ReadingError, RenderMode, UnitKind, UnitReference
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,8 @@ SECTION_HARD_CHARS = 4200
 
 _SLIDE_SEPARATOR = re.compile(r"^--- Slide \d+ ---$", re.MULTILINE)
 # Title candidates: a markdown heading, or the first non-trivial line.
-_MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(?P<title>.+?)\s*#*\s*$")
+_MD_HEADING = re.compile(r"^\s{0,3}(?P<marks>#{1,6})\s+(?P<title>.+?)\s*#*\s*$")
+_MD_FENCE = re.compile(r"^\s{0,3}(?P<marker>`{3,}|~{3,})")
 
 # Formats whose original bytes the browser can render faithfully next to the
 # extracted text. Only PDF today; adding one means teaching the reader pane to
@@ -68,6 +69,8 @@ class Extraction:
     # Otherwise the outline is synthesised later from unit first lines, so that
     # a material without bookmarks is still navigable by meaning.
     outline: tuple[OutlineEntry, ...] = field(default_factory=tuple)
+    render_mode: RenderMode = "text"
+    unit_refs: tuple[UnitReference, ...] = field(default_factory=tuple)
 
     @property
     def char_count(self) -> int:
@@ -88,6 +91,8 @@ def extract_material(path: str | Path) -> Extraction:
     suffix = source.suffix.lower()
     if suffix == ".pdf":
         extraction = _extract_pdf(source)
+    elif suffix == ".epub":
+        extraction = _extract_epub(source)
     elif suffix == ".pptx":
         extraction = _extract_slides(source)
     else:
@@ -131,6 +136,42 @@ def _extract_pdf(source: Path) -> Extraction:
         has_raw_view=True,
         title=title,
         outline=outline,
+        render_mode="pdf",
+    )
+
+
+def _extract_epub(source: Path) -> Extraction:
+    """Preserve EPUB spine order so browser and assistant locators agree."""
+    from deeptutor.utils.document_extractor import DocumentExtractionError, extract_epub_spine
+
+    try:
+        units, navigation = extract_epub_spine(source.read_bytes(), source.name)
+    except (OSError, DocumentExtractionError) as exc:
+        raise ReadingError(f"{source.name}: failed to read EPUB ({exc})") from exc
+
+    refs = tuple(
+        UnitReference(locator=index, source_href=unit.href, title=unit.title)
+        for index, unit in enumerate(units, start=1)
+    )
+    outline = tuple(
+        OutlineEntry(locator=row.locator, title=row.title, level=row.level) for row in navigation
+    )
+    if not outline:
+        outline = tuple(
+            OutlineEntry(
+                locator=ref.locator,
+                title=ref.title or Path(ref.source_href).stem,
+                synthesised=not bool(ref.title),
+            )
+            for ref in refs
+        )
+    return Extraction(
+        units=tuple(unit.text for unit in units),
+        unit="chapter",
+        extractor="epub-spine",
+        outline=outline,
+        render_mode="epub",
+        unit_refs=refs,
     )
 
 
@@ -228,6 +269,71 @@ def split_into_sections(text: str) -> tuple[str, ...]:
     return tuple(sections)
 
 
+def split_markdown_by_headings(
+    text: str,
+) -> tuple[tuple[str, ...], tuple[OutlineEntry, ...]]:
+    """Cut article markdown at headings and map every unit to its heading.
+
+    A fetched page normally starts with the synthetic title heading added by
+    the HTML extractor.  That heading alone is not meaningful article
+    structure, so fewer than two usable headings deliberately falls back to
+    :func:`split_into_sections` and returns no outline.  The store can then use
+    its existing first-line outline rather than labelling an entire article as
+    repeated continuations of the page title.
+
+    Each heading-delimited region is still passed through the regular section
+    splitter.  This preserves its hard cap for very long paragraphs, and every
+    continuation gets an outline row pointing at its own locator while keeping
+    the source heading's title and level.
+    """
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalised:
+        return (), ()
+
+    boundaries: list[tuple[int, int, str]] = []
+    fence_marker = ""
+    offset = 0
+    for line in normalised.splitlines(keepends=True):
+        fence = _MD_FENCE.match(line)
+        if fence:
+            marker = fence.group("marker")
+            if not fence_marker:
+                fence_marker = marker[0]
+            elif marker[0] == fence_marker:
+                fence_marker = ""
+            offset += len(line)
+            continue
+        if not fence_marker:
+            heading = _MD_HEADING.match(line.rstrip("\n"))
+            if heading:
+                title = _clean_heading_title(heading.group("title"))
+                if title:
+                    boundaries.append((offset, len(heading.group("marks")), title))
+        offset += len(line)
+
+    if len(boundaries) < 2:
+        return split_into_sections(normalised), ()
+
+    units: list[str] = []
+    outline: list[OutlineEntry] = []
+    for index, (start, level, title) in enumerate(boundaries):
+        end = boundaries[index + 1][0] if index + 1 < len(boundaries) else len(normalised)
+        # Keep prose before the first heading instead of dropping it.  In web
+        # extraction this is uncommon (the title is normally first), but hand-
+        # authored pages sometimes place a short deck or byline above it.
+        section_start = 0 if index == 0 else start
+        for piece in split_into_sections(normalised[section_start:end]):
+            units.append(piece)
+            outline.append(OutlineEntry(locator=len(units), title=title, level=level))
+    return tuple(units), tuple(outline)
+
+
+def _clean_heading_title(title: str) -> str:
+    """Remove inline Markdown decoration from a heading used as a UI label."""
+    clean = re.sub(r"\[([^]]*)\]\([^)]*\)", r"\1", title)
+    return re.sub(r"[*`_~]", "", clean).strip()
+
+
 def _hard_split(block: str, limit: int) -> list[str]:
     """Break an over-long paragraph at whitespace near *limit*, else mid-word."""
     if len(block) <= limit:
@@ -310,6 +416,7 @@ __all__ = [
     "Extraction",
     "extract_material",
     "first_line_label",
+    "split_markdown_by_headings",
     "split_into_sections",
     "synthesise_outline",
 ]

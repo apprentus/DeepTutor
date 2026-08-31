@@ -48,7 +48,9 @@ export interface ReadingContextValue {
   loading: boolean;
   /** Last failure worth showing the user; cleared by `dismissError`. */
   error: string | null;
-  openMaterial: (candidate: MaterialDetail | MaterialInfo) => Promise<void>;
+  openMaterial: (
+    candidate: MaterialDetail | MaterialInfo | string,
+  ) => Promise<boolean>;
   closeMaterial: () => void;
   /** Insert or update an annotation, optimistically. */
   saveMark: (
@@ -62,7 +64,11 @@ export interface ReadingContextValue {
   dismissError: () => void;
   setError: (message: string) => void;
   /** Report scroll position / selection. Does not trigger a render. */
-  reportViewport: (next: { locator?: number; selection?: string }) => void;
+  reportViewport: (next: {
+    locator?: number;
+    selection?: string;
+    timeSeconds?: number | null;
+  }) => void;
 }
 
 const noop = () => {};
@@ -72,7 +78,7 @@ const ReadingContext = createContext<ReadingContextValue>({
   annotations: [],
   loading: false,
   error: null,
-  openMaterial: async () => {},
+  openMaterial: async () => false,
   closeMaterial: noop,
   saveMark: async () => {},
   removeMark: async () => {},
@@ -98,26 +104,30 @@ export function ReadingProvider({ children }: { children: ReactNode }) {
   }, [material]);
 
   const openMaterial = useCallback(
-    async (candidate: MaterialDetail | MaterialInfo) => {
+    async (candidate: MaterialDetail | MaterialInfo | string) => {
       const token = ++openTokenRef.current;
       setLoading(true);
       setErrorState(null);
       try {
         const detail =
-          "outline" in candidate
-            ? (candidate as MaterialDetail)
-            : await getMaterial(candidate.material_id);
+          typeof candidate === "string"
+            ? await getMaterial(candidate)
+            : "outline" in candidate
+              ? (candidate as MaterialDetail)
+              : await getMaterial(candidate.material_id);
         const marks = await listAnnotations(detail.material_id);
-        if (token !== openTokenRef.current) return;
+        if (token !== openTokenRef.current) return false;
         setMaterial(detail);
         setAnnotations(marks);
+        return true;
       } catch (caught) {
-        if (token !== openTokenRef.current) return;
+        if (token !== openTokenRef.current) return false;
         setErrorState(
           caught instanceof Error
             ? caught.message
             : "This document could not be opened.",
         );
+        return false;
       } finally {
         if (token === openTokenRef.current) setLoading(false);
       }
@@ -198,8 +208,11 @@ export function ReadingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reportViewport = useCallback(
-    (next: { locator?: number; selection?: string }) =>
-      setReadingViewport(next),
+    (next: {
+      locator?: number;
+      selection?: string;
+      timeSeconds?: number | null;
+    }) => setReadingViewport(next),
     [],
   );
 

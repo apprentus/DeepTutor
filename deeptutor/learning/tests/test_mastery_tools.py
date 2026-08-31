@@ -19,6 +19,7 @@ from deeptutor.tools.mastery_tool import (
     MasteryLeaveTool,
     MasteryPathsTool,
     MasteryQuizTool,
+    MasterySkipQuestionTool,
     MasteryStatusTool,
     MasterySwitchTool,
 )
@@ -221,6 +222,80 @@ async def test_grade_without_pending_fails(path_id):
     await _build_basic(path_id)
     result = await MasteryGradeTool().execute(_mastery_path_id=path_id, answer="x")
     assert result.success is False
+
+
+@pytest.mark.asyncio
+async def test_skip_question_unblocks_registration_without_credit(path_id):
+    await _build_basic(path_id)
+    status = json.loads((await MasteryStatusTool().execute(_mastery_path_id=path_id)).content)
+    kp_id = status["next"]["knowledge_point_id"]
+    first = json.loads(
+        (
+            await MasteryQuizTool().execute(
+                _mastery_path_id=path_id,
+                knowledge_point_id=kp_id,
+                question="First?",
+                expected_answer="right",
+            )
+        ).content
+    )
+    from deeptutor.learning.service import LearningService
+
+    LearningService().record_question_answer(
+        path_id,
+        "wrong",
+        interaction_id=first["question_id"],
+    )
+    before = LearningStore().load(path_id)
+    assert before is not None
+    mastery_before = before.mastery_levels.get(kp_id, 0.0)
+
+    result = await MasterySkipQuestionTool().execute(_mastery_path_id=path_id)
+    skipped = json.loads(result.content)
+    progress = LearningStore().load(path_id)
+    abandoned = LearningStore().get_interaction(path_id, first["question_id"])
+
+    assert result.success is True
+    assert skipped["skipped"] is True
+    assert skipped["question_id"] == first["question_id"]
+    assert skipped["next"]["action"] != "answer_pending"
+    assert progress is not None
+    assert progress.pending_question is None
+    assert progress.quiz_attempts == []
+    assert progress.mastery_levels.get(kp_id, 0.0) == mastery_before
+    assert abandoned is not None
+    assert abandoned.status == InteractionStatus.ABANDONED
+    assert LearningStore().get_active_interaction(path_id) is None
+
+    replacement = json.loads(
+        (
+            await MasteryQuizTool().execute(
+                _mastery_path_id=path_id,
+                knowledge_point_id=kp_id,
+                question="Replacement?",
+                expected_answer="right",
+            )
+        ).content
+    )
+    assert replacement["status"] == "registered"
+    assert replacement["question_id"] != first["question_id"]
+
+
+@pytest.mark.asyncio
+async def test_skip_question_without_open_question_is_no_op(path_id):
+    await _build_basic(path_id)
+    before = LearningStore().load(path_id)
+    assert before is not None
+
+    result = await MasterySkipQuestionTool().execute(_mastery_path_id=path_id)
+    payload = json.loads(result.content)
+    after = LearningStore().load(path_id)
+
+    assert result.success is True
+    assert payload["skipped"] is False
+    assert payload["question_id"] == ""
+    assert after is not None
+    assert after.version == before.version
 
 
 @pytest.mark.asyncio
@@ -829,6 +904,59 @@ async def test_status_recovers_answered_interaction_without_exposing_answer_key(
         ).content
     )
     assert graded["is_correct"] is True
+
+
+@pytest.mark.asyncio
+async def test_grade_recovers_unreadable_choice_answer(path_id):
+    """An unreadable clarifying commit must not permanently block grading (#1004)."""
+    await _build_basic(path_id)
+    initial = json.loads((await MasteryStatusTool().execute(_mastery_path_id=path_id)).content)
+    kp_id = initial["next"]["knowledge_point_id"]
+    quiz = json.loads(
+        (
+            await MasteryQuizTool().execute(
+                _mastery_path_id=path_id,
+                knowledge_point_id=kp_id,
+                question="Compute (2e^{iπ/3})³",
+                expected_answer="A",
+                options=["A: -8", "B: -6", "C: 8", "D: -2"],
+            )
+        ).content
+    )
+    from deeptutor.learning.service import LearningService
+
+    # Simulate the pre-fix deadlock: clarifying prose already persisted.
+    LearningService().record_question_answer(
+        path_id,
+        "先告诉我三角恒等式是什么？",
+        interaction_id=quiz["question_id"],
+    )
+    stuck = LearningStore().get_interaction(path_id, quiz["question_id"])
+    assert stuck is not None
+    assert stuck.status == InteractionStatus.ANSWERED
+
+    blocked = await MasteryGradeTool().execute(
+        _mastery_path_id=path_id,
+        question_id=quiz["question_id"],
+        answer="先告诉我三角恒等式是什么？",
+    )
+    assert blocked.success is False
+    assert "NOT graded" in blocked.content
+
+    recovered = json.loads(
+        (
+            await MasteryGradeTool().execute(
+                _mastery_path_id=path_id,
+                question_id=quiz["question_id"],
+                answer="A",
+            )
+        ).content
+    )
+    assert recovered["is_correct"] is True
+    graded = LearningStore().get_interaction(path_id, quiz["question_id"])
+    assert graded is not None
+    assert graded.status == InteractionStatus.GRADED
+    assert graded.user_answer == "A"
 
 
 # ── assess: the qualitative gate ─────────────────────────────────────────────
