@@ -7,6 +7,8 @@ import SettingsNav, {
 } from "@/components/settings/SettingsNav";
 import { SettingsToolbar } from "@/components/settings/SettingsToolbar";
 import { SettingsLoadStatusBanner } from "@/components/settings/SettingsLoadStatusBanner";
+import { useAuthStatus } from "@/hooks/useAuthStatus";
+import { showEncoreAdminNav } from "@/lib/encore-admin-nav";
 import { isNavOnlyRoute } from "@/lib/settings-nav";
 
 /**
@@ -22,19 +24,25 @@ export default function SettingsMain({
 }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname() ?? "";
   const showToolbar = !isNavOnlyRoute(pathname);
+  const { enabled, isAdmin, loading } = useAuthStatus();
+  const showSettingsNav = showEncoreAdminNav({ loading, enabled, isAdmin });
 
   return (
     <div className="flex h-full min-w-0 bg-[var(--background)]">
-      <div className="hidden h-full shrink-0 border-r border-[var(--border)]/60 py-5 pl-6 pr-3 md:block">
-        <SettingsNav />
-      </div>
+      {showSettingsNav ? (
+        <div className="hidden h-full shrink-0 border-r border-[var(--border)]/60 py-5 pl-6 pr-3 md:block">
+          <SettingsNav />
+        </div>
+      ) : null}
       <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <div className="w-full px-8 pt-5">
           {/* Below `md` the column is hidden, so this is the only way out of
               the page you landed on. */}
-          <div className="mb-2">
-            <SettingsNavCompact />
-          </div>
+          {showSettingsNav ? (
+            <div className="mb-2">
+              <SettingsNavCompact />
+            </div>
+          ) : null}
           {showToolbar && <SettingsToolbar />}
           <SettingsLoadStatusBanner />
         </div>
