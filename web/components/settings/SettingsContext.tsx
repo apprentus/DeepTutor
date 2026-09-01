@@ -16,6 +16,9 @@ import { useTranslation } from "react-i18next";
 import type { CodeBlockThemeId } from "@/components/common/code-block-themes";
 import {
   normalizeCodeBlockTheme,
+  readStoredLanguage,
+  readStoredResponseLanguage,
+  resolveUiLanguagesFromStore,
   writeStoredCodeBlockShowLineNumbers,
   writeStoredCodeBlockTheme,
   writeStoredCodeBlockWrapLongLines,
@@ -691,9 +694,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [theme, setTheme] = useState<UiSettings["theme"]>("snow");
-  const [language, setLanguage] = useState<UiSettings["language"]>("en");
-  const [responseLanguage, setResponseLanguage] =
-    useState<UiSettings["response_language"]>("en");
+  const [language, setLanguage] = useState<UiSettings["language"]>(
+    readStoredLanguage,
+  );
+  const [responseLanguage, setResponseLanguage] = useState<
+    UiSettings["response_language"]
+  >(readStoredResponseLanguage);
   const [catalog, setCatalog] = useState<Catalog>(defaultCatalog());
   const [draft, setDraft] = useState<Catalog>(defaultCatalog());
   const [catalogEditable, setCatalogEditable] = useState<boolean | null>(null);
@@ -812,8 +818,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setCatalogEditable(false);
       }
       setTheme(payload.ui.theme);
-      setLanguage(payload.ui.language);
-      setResponseLanguage(payload.ui.response_language ?? payload.ui.language);
+      const languages = resolveUiLanguagesFromStore(payload.ui);
+      setLanguage(languages.language);
+      setResponseLanguage(languages.response_language);
+      if (
+        languages.language !== payload.ui.language ||
+        languages.response_language !==
+          (payload.ui.response_language ?? payload.ui.language)
+      ) {
+        void persistUiSettingsPatch({
+          language: languages.language,
+          response_language: languages.response_language,
+        });
+      }
       // Writes the backend-loaded values into app-shell storage and dispatches
       // the code-block settings event; AppShellContext (the single source) picks
       // them up, so no separate copy needs seeding here.
