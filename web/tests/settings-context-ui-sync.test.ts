@@ -241,6 +241,11 @@ test("settings-context: routes code-block state through the AppShell single sour
     /syncLoadedCodeBlockSettingsToAppShell\(\s*payload\.ui,?\s*\)/,
     "loadSettings should push backend-loaded code-block values into the AppShell source.",
   );
+  assert.match(
+    source,
+    /resolveUiLanguagesFromStore\(payload\.ui\)/,
+    "loadSettings should keep a stored model language instead of a new account default.",
+  );
   // User edits stay in the global draft until Apply publishes to AppShell.
   assert.match(source, /stageUi\(\{ code_block_show_line_numbers \}\)/);
   assert.match(source, /stageUi\(\{ code_block_wrap_long_lines \}\)/);
