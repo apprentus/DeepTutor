@@ -4,7 +4,10 @@ import { useEffect, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuthStatus } from "@/hooks/useAuthStatus";
-import { isEncoreAdminOnlyPath } from "@/lib/encore-admin-nav";
+import {
+  encoreBlockedRedirect,
+  isEncoreAdminOnlyPath,
+} from "@/lib/encore-admin-nav";
 
 export function AdminOnlyRouteGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "";
@@ -14,8 +17,8 @@ export function AdminOnlyRouteGuard({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (loading) return;
-    if (blocked) router.replace("/home");
-  }, [loading, blocked, router]);
+    if (blocked) router.replace(encoreBlockedRedirect(pathname));
+  }, [loading, blocked, pathname, router]);
 
   if (loading && isEncoreAdminOnlyPath(pathname)) return null;
   if (blocked) return null;
