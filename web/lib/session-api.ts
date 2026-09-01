@@ -29,6 +29,8 @@ export interface SessionMessage {
 
 export interface SessionPreferences {
   capability?: string;
+  /** Stable learning surface, independent of the action used for a turn. */
+  workspace_mode?: "immersive_reading" | "mastery_path" | "";
   tools?: string[];
   knowledge_bases?: string[];
   language?: string;
@@ -41,6 +43,17 @@ export interface SessionPreferences {
    *  shown at that branch point. Missing keys default to the latest
    *  sibling (most recently created child). */
   selected_branches?: Record<string, number>;
+  /** Study-course organization. Empty/absent means Unclassified. */
+  course_id?: string;
+  /** Source conversation for nested selected-text tutor threads. */
+  parent_session_id?: string;
+  session_kind?: "chat" | "selection_tutor" | "immersive_reading";
+  /** Owning Immersive Reading workspace, present only for reading sessions. */
+  reading_workspace_id?: string;
+  /** Material active when the reading conversation was created. */
+  reading_material_id?: string;
+  pinned?: boolean;
+  archived?: boolean;
 }
 
 export interface SessionSummary {
@@ -148,6 +161,19 @@ export async function listSessions(
   );
 }
 
+/** Fetch the complete session index in bounded pages for course organization. */
+export async function listAllSessions(options?: {
+  force?: boolean;
+}): Promise<SessionSummary[]> {
+  const pageSize = 200;
+  const sessions: SessionSummary[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await listSessions(pageSize, offset, options);
+    sessions.push(...page);
+    if (page.length < pageSize) return sessions;
+  }
+}
+
 export async function getSession(
   sessionId: string,
   signal?: AbortSignal,
@@ -159,6 +185,28 @@ export async function getSession(
   return expectJson<SessionDetail>(response);
 }
 
+/**
+ * One line the user is likely to type next, for the home composer's
+ * placeholder — "" when there is nothing worth offering (no exchange yet,
+ * a timeout, a model that didn't come back with something usable).
+ */
+export async function fetchSessionAskHint(
+  sessionId: string,
+  init?: RequestInit,
+): Promise<string> {
+  try {
+    const response = await apiFetch(
+      apiUrl(`/api/v1/sessions/${sessionId}/ask-hint`),
+      { cache: "no-store", ...init },
+    );
+    const result = await expectJson<{ hint?: string }>(response);
+    return typeof result.hint === "string" ? result.hint : "";
+  } catch {
+    // A missing hint is not a failure the composer should ever surface.
+    return "";
+  }
+}
+
 export async function updateSessionTitle(
   sessionId: string,
   title: string,
@@ -168,6 +216,31 @@ export async function updateSessionTitle(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   });
+  const data = await expectJson<{ session: SessionDetail }>(response);
+  invalidateClientCache("sessions:");
+  return data.session;
+}
+
+export type SessionOrganizationPatch = Partial<{
+  course_id: string;
+  parent_session_id: string;
+  session_kind: "chat" | "selection_tutor";
+  pinned: boolean;
+  archived: boolean;
+}>;
+
+export async function updateSessionOrganization(
+  sessionId: string,
+  patch: SessionOrganizationPatch,
+): Promise<SessionDetail> {
+  const response = await apiFetch(
+    apiUrl(`/api/v1/sessions/${sessionId}/organization`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+  );
   const data = await expectJson<{ session: SessionDetail }>(response);
   invalidateClientCache("sessions:");
   return data.session;

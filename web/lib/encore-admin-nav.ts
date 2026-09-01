@@ -3,6 +3,8 @@ export const ENCORE_ADMIN_ONLY_NAV = [
   "/agents",
   "/co-writer",
   "/book",
+  "/mastery",
+  "/reading",
   "/space",
   "/memory",
   "/knowledge",

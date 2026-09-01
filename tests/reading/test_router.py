@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import zipfile
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
 from deeptutor.api.routers import reading
+from deeptutor.reading import ReadingCatalogStore, ReadingError, ReadingStore
 from deeptutor.services.path_service import PathService
 
 pymupdf = pytest.importorskip("pymupdf")
@@ -56,6 +58,30 @@ def _upload(client: TestClient, name: str = "attention.pdf", data: bytes | None 
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def _epub_bytes(*, language: str = "en", paragraph: str = "Readable EPUB text.") -> bytes:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("mimetype", "application/epub+zip")
+        archive.writestr(
+            "META-INF/container.xml",
+            "<container><rootfiles><rootfile full-path='OPS/book.opf'/></rootfiles></container>",
+        )
+        archive.writestr(
+            "OPS/book.opf",
+            "<package xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+            "<metadata><dc:identifier>urn:uuid:router-bilingual</dc:identifier>"
+            "<dc:title>Router book</dc:title>"
+            f"<dc:language>{language}</dc:language></metadata>"
+            "<manifest><item id='one' href='one.xhtml'/></manifest>"
+            "<spine><itemref idref='one'/></spine></package>",
+        )
+        archive.writestr(
+            "OPS/one.xhtml",
+            f"<html><body><h1>Opening</h1><p>{paragraph}</p></body></html>",
+        )
+    return stream.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +158,32 @@ def test_get_material_400s_for_a_traversal_attempt(client: TestClient) -> None:
     assert response.status_code in (400, 404)
 
 
+def test_snapshot_assets_are_served_with_sniffed_private_headers(client: TestClient) -> None:
+    store = ReadingStore()
+    material_id = "0123456789abcdef"
+    name = "a" * 20 + ".png"
+    store.ingest_units(
+        material_id,
+        filename="snapshot.md",
+        units=["# Snapshot"],
+        content_format="web_markdown",
+        source_type="url_snapshot",
+        source_url="https://example.com",
+        assets={name: b"\x89PNG\r\n\x1a\nasset"},
+    )
+
+    response = client.get(f"/api/v1/reading/materials/{material_id}/assets/{name}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"].startswith("private")
+    assert (
+        client.get(f"/api/v1/reading/materials/{material_id}/assets/not-an-image.svg").status_code
+        == 404
+    )
+
+
 def test_delete_material_is_idempotent_then_404s(client: TestClient) -> None:
     material = _upload(client)
     material_id = material["material_id"]
@@ -140,13 +192,108 @@ def test_delete_material_is_idempotent_then_404s(client: TestClient) -> None:
     assert client.delete(f"/api/v1/reading/materials/{material_id}").status_code == 404
 
 
-def test_supported_formats_names_pdf_as_the_faithful_view(client: TestClient) -> None:
+def test_delete_material_restores_content_when_catalog_cleanup_fails(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    material_id = _upload(client)["material_id"]
+
+    def fail_catalog_delete(_self, _material_id: str) -> bool:
+        raise ReadingError("catalog cleanup failed")
+
+    monkeypatch.setattr(ReadingCatalogStore, "delete_material", fail_catalog_delete)
+    response = client.delete(f"/api/v1/reading/materials/{material_id}")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "catalog cleanup failed"
+    assert ReadingStore().manifest(material_id).material_id == material_id
+    assert ReadingCatalogStore().get_material(material_id) is not None
+
+
+def test_supported_formats_names_faithful_documents_and_media(client: TestClient) -> None:
     body = client.get("/api/v1/reading/supported-formats").json()
 
     assert ".pdf" in body["extensions"]
     assert ".epub" in body["extensions"]
-    assert body["raw_view_extensions"] == [".pdf"]
+    assert ".pdf" in body["raw_view_extensions"]
+    assert ".mp4" in body["raw_view_extensions"]
+    assert ".mp3" in body["raw_view_extensions"]
     assert body["max_bytes"] > 0
+
+
+def test_epub_contract_exposes_source_refs_original_and_position(client: TestClient) -> None:
+    material = _upload(client, name="book.epub", data=_epub_bytes())
+
+    assert material["render_mode"] == "epub"
+    assert material["has_raw_view"] is False
+    assert material["unit_refs"] == [
+        {"locator": 1, "source_href": "OPS/one.xhtml", "title": "Opening"}
+    ]
+    raw = client.get(f"/api/v1/reading/materials/{material['material_id']}/raw")
+    assert raw.status_code == 200
+    assert raw.headers["content-type"] == "application/epub+zip"
+
+    base = f"/api/v1/reading/materials/{material['material_id']}/position"
+    saved = client.put(
+        base,
+        json={"locator": 1, "source_anchor": "epubcfi(/6/2)", "percentage": 0.4},
+    )
+    assert saved.status_code == 200
+    assert client.get(base).json()["source_anchor"] == "epubcfi(/6/2)"
+    assert client.put(base, json={"locator": 2, "percentage": 0}).status_code == 400
+
+
+def test_epub_pairing_requires_confirmation_and_preserves_source_materials(
+    client: TestClient,
+) -> None:
+    english = _upload(client, name="english.epub", data=_epub_bytes())
+    chinese = _upload(
+        client,
+        name="chinese.epub",
+        data=_epub_bytes(language="zh", paragraph="可读的 EPUB 文本。"),
+    )
+
+    candidates = client.get(
+        f"/api/v1/reading/materials/{english['material_id']}/epub-pairing-candidates"
+    )
+    assert candidates.status_code == 200
+    assert candidates.json()[0]["material_id"] == chinese["material_id"]
+    assert client.get("/api/v1/reading/epub-pairings").json() == []
+
+    created = client.post(
+        "/api/v1/reading/epub-pairings",
+        json={
+            "english_material_id": english["material_id"],
+            "chinese_material_id": chinese["material_id"],
+        },
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["pairing"]["status"] == "confirmed"
+    assert body["pairing"]["english_material_id"] == english["material_id"]
+    assert body["pairing"]["chinese_material_id"] == chinese["material_id"]
+    assert client.get("/api/v1/reading/epub-pairings").json() == [body["pairing"]]
+    assert len(client.get("/api/v1/reading/materials").json()) == 2
+
+    removed = client.delete(f"/api/v1/reading/epub-pairings/{body['pairing']['pairing_id']}")
+    assert removed.status_code == 200
+    assert client.get("/api/v1/reading/epub-pairings").json() == []
+    assert len(client.get("/api/v1/reading/materials").json()) == 2
+
+
+def test_epub_pairing_rejects_the_same_language(client: TestClient) -> None:
+    english = _upload(client, name="english.epub", data=_epub_bytes())
+    other = _upload(client, name="other.epub", data=_epub_bytes())
+
+    response = client.post(
+        "/api/v1/reading/epub-pairings",
+        json={
+            "english_material_id": english["material_id"],
+            "chinese_material_id": other["material_id"],
+        },
+    )
+
+    assert response.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -218,11 +365,13 @@ def test_annotation_create_update_list_delete_round_trip(client: TestClient) -> 
             "quote": "scaled dot-product",
             "note": "core",
             "rects": [[0.1, 0.2, 0.6, 0.24]],
+            "source_anchor": "epubcfi(/6/4)",
         },
     ).json()
     assert created["annotation_id"]
     assert created["author"] == "user"
     assert created["rects"] == [[0.1, 0.2, 0.6, 0.24]]
+    assert created["source_anchor"] == "epubcfi(/6/4)"
 
     updated = client.put(
         base,
@@ -241,6 +390,77 @@ def test_annotation_create_update_list_delete_round_trip(client: TestClient) -> 
     assert client.delete(f"{base}/{created['annotation_id']}").status_code == 200
     assert client.get(base).json() == []
     assert client.delete(f"{base}/{created['annotation_id']}").status_code == 404
+
+
+def test_annotation_round_trips_w3c_text_selectors(client: TestClient) -> None:
+    material = _upload(client)
+    base = f"/api/v1/reading/materials/{material['material_id']}/annotations"
+
+    created = client.put(
+        base,
+        json={
+            "locator": 1,
+            "quote": "Sequence models",
+            "selectors": [
+                {
+                    "type": "TextQuoteSelector",
+                    "exact": "Sequence models",
+                    "prefix": "Chapter one. ",
+                    "suffix": " read",
+                },
+                {"type": "TextPositionSelector", "start": 13, "end": 28},
+            ],
+        },
+    )
+
+    assert created.status_code == 200, created.text
+    assert created.json()["selectors"] == [
+        {
+            "type": "TextQuoteSelector",
+            "exact": "Sequence models",
+            "prefix": "Chapter one. ",
+            "suffix": " read",
+        },
+        {"type": "TextPositionSelector", "start": 13, "end": 28},
+    ]
+
+
+def test_annotation_rejects_mismatched_quote_selector(client: TestClient) -> None:
+    material = _upload(client)
+    response = client.put(
+        f"/api/v1/reading/materials/{material['material_id']}/annotations",
+        json={
+            "locator": 1,
+            "quote": "Sequence models",
+            "selectors": [
+                {"type": "TextQuoteSelector", "exact": "different text"},
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "does not match" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        {"type": "TextPositionSelector", "start": 5, "end": 5},
+        {"type": "TextPositionSelector", "start": 6, "end": 5},
+        {"type": "TextPositionSelector", "start": 0, "end": 2001},
+    ],
+)
+def test_annotation_rejects_invalid_text_positions(
+    client: TestClient,
+    selector: dict,
+) -> None:
+    material = _upload(client)
+    response = client.put(
+        f"/api/v1/reading/materials/{material['material_id']}/annotations",
+        json={"locator": 1, "quote": "x", "selectors": [selector]},
+    )
+
+    assert response.status_code == 422
 
 
 def test_annotation_on_an_out_of_range_locator_is_a_400(client: TestClient) -> None:
@@ -359,3 +579,112 @@ def test_export_rejects_an_unknown_format(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_library_lists_collection_membership_and_totals(client: TestClient) -> None:
+    shared = _upload(client, name="shared.pdf")
+    orphan = _upload(client, name="orphan.pdf", data=_pdf_bytes(["Only page. Alone."]))
+    for title in ("Close reading", "Seminar prep"):
+        created = client.post(
+            "/api/v1/reading/workspaces",
+            json={"title": title, "material_ids": [shared["material_id"]]},
+        )
+        assert created.status_code == 201, created.text
+
+    payload = client.get("/api/v1/reading/library/materials").json()
+    rows = {row["material_id"]: row for row in payload["materials"]}
+
+    assert [row["title"] for row in rows[shared["material_id"]]["collections"]] == [
+        "Close reading",
+        "Seminar prep",
+    ]
+    assert rows[orphan["material_id"]]["collections"] == []
+    assert rows[shared["material_id"]]["size_bytes"] > 0
+    assert rows[shared["material_id"]]["unit_count"] == len(PAGES)
+    assert payload["counts"]["all"] == 2
+    assert payload["counts"]["unassigned"] == 1
+
+    unassigned = client.get(
+        "/api/v1/reading/library/materials", params={"filter": "unassigned"}
+    ).json()
+    assert [row["material_id"] for row in unassigned["materials"]] == [orphan["material_id"]]
+    # Counts describe the library, not the filtered page.
+    assert unassigned["counts"]["all"] == 2
+
+
+def test_duplicate_check_separates_same_content_from_same_name(
+    client: TestClient,
+) -> None:
+    data = _pdf_bytes()
+    material = _upload(client, name="attention.pdf", data=data)
+    client.post(
+        "/api/v1/reading/workspaces",
+        json={"title": "Close reading", "material_ids": [material["material_id"]]},
+    )
+
+    response = client.post(
+        "/api/v1/reading/library/duplicate-check",
+        json={
+            "files": [
+                {
+                    "filename": "attention.pdf",
+                    "content_id": material["material_id"],
+                    "size_bytes": len(data),
+                },
+                {"filename": "attention.pdf", "content_id": "", "mime": "application/pdf"},
+                {"filename": "never-seen.pdf", "content_id": ""},
+            ]
+        },
+    )
+
+    matches = response.json()["matches"]
+    assert [row["kind"] for row in matches] == ["same_content", "same_name"]
+    assert matches[0]["material"]["material_id"] == material["material_id"]
+    assert [row["title"] for row in matches[0]["collections"]] == ["Close reading"]
+
+
+def test_reuse_false_keeps_a_second_copy_with_its_own_annotations(
+    client: TestClient,
+) -> None:
+    data = _pdf_bytes()
+    first = _upload(client, name="attention.pdf", data=data)
+    second = client.post(
+        "/api/v1/reading/materials",
+        params={"reuse": "false"},
+        files={"file": ("attention.pdf", io.BytesIO(data), "application/pdf")},
+    )
+    assert second.status_code == 200, second.text
+    second_id = second.json()["material_id"]
+
+    assert second_id != first["material_id"]
+    client.put(
+        f"/api/v1/reading/materials/{first['material_id']}/annotations",
+        json={"locator": 1, "quote": "Sequence models", "note": "first copy"},
+    )
+
+    assert (
+        len(client.get(f"/api/v1/reading/materials/{first['material_id']}/annotations").json()) == 1
+    )
+    # The second copy shares the extracted text but none of the reading state.
+    assert client.get(f"/api/v1/reading/materials/{second_id}/annotations").json() == []
+    assert client.get(f"/api/v1/reading/materials/{second_id}/units/1").json()["text"]
+
+
+def test_deleting_a_material_reports_where_it_was_used(client: TestClient) -> None:
+    data = _pdf_bytes()
+    first = _upload(client, name="attention.pdf", data=data)
+    second_id = client.post(
+        "/api/v1/reading/materials",
+        params={"reuse": "false"},
+        files={"file": ("attention.pdf", io.BytesIO(data), "application/pdf")},
+    ).json()["material_id"]
+    client.post(
+        "/api/v1/reading/workspaces",
+        json={"title": "Close reading", "material_ids": [first["material_id"]]},
+    )
+
+    removed = client.request("DELETE", f"/api/v1/reading/materials/{first['material_id']}").json()
+
+    assert [row["title"] for row in removed["removed_from"]] == ["Close reading"]
+    # The sibling still reads the same extracted content, so it survives.
+    assert client.get(f"/api/v1/reading/materials/{second_id}/units/1").json()["text"]
