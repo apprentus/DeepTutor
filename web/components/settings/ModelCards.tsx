@@ -344,7 +344,7 @@ export function ModelCard({
 }: {
   model: CatalogModel;
   service: ServiceName;
-  language: "en" | "zh";
+  language: "en" | "zh" | "fr";
   index: number;
   inUse: boolean;
   expanded: boolean;
@@ -361,7 +361,11 @@ export function ModelCard({
   const { t } = useTranslation();
   const name =
     (model.name || "").trim() ||
-    (language === "zh" ? `模型 ${index + 1}` : `Model ${index + 1}`);
+    (language === "zh"
+      ? `模型 ${index + 1}`
+      : language === "fr"
+        ? `Modèle ${index + 1}`
+        : `Model ${index + 1}`);
   const detail =
     service === "llm"
       ? model.context_window
