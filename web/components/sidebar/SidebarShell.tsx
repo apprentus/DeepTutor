@@ -30,6 +30,7 @@ import type { ReadingCollectionLabel } from "@/lib/reading-workspace-api";
 import type { StudyCourse } from "@/lib/courses-api";
 import { useAuthStatus } from "@/hooks/useAuthStatus";
 import {
+  ENCORE_USER_SETTINGS_HREF,
   isEncoreAdminOnlyNavHref,
   showEncoreAdminNav,
 } from "@/lib/encore-admin-nav";
@@ -141,6 +142,10 @@ export function SidebarShell({
   });
   const secondaryNav = SECONDARY_NAV.filter(
     (item) => showAdminNav || !isEncoreAdminOnlyNavHref(item.href),
+  ).map((item) =>
+    item.href === "/settings" && !showAdminNav
+      ? { ...item, href: ENCORE_USER_SETTINGS_HREF }
+      : item,
   );
   const renderedFooter =
     typeof footerSlot === "function" ? footerSlot(collapsed) : footerSlot;
