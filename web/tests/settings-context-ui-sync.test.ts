@@ -284,6 +284,11 @@ test("settings-context: routes code-block state through the AppShell single sour
     /syncLoadedCodeBlockSettingsToAppShell\(\s*payload\.ui,?\s*\)/,
     "loadSettings should push backend-loaded code-block values into the AppShell source.",
   );
+  assert.match(
+    source,
+    /resolveUiLanguagesFromStore\(payload\.ui\)/,
+    "loadSettings should keep a stored model language instead of a new account default.",
+  );
   // User edits delegate to the AppShell setters (which normalize, persist to
   // localStorage, and notify consumers) rather than a local mirror.
   assert.match(

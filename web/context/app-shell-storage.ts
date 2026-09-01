@@ -101,6 +101,33 @@ export function hasStoredLanguage(): boolean {
   }
 }
 
+export function hasStoredResponseLanguage(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(RESPONSE_LANGUAGE_STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer this browser's language choice over a fresh account's defaults. */
+export function resolveUiLanguagesFromStore(backend: {
+  language?: string | null;
+  response_language?: string | null;
+}): { language: AppLanguage; response_language: AppLanguage } {
+  const backendLanguage = normalizeLanguage(backend.language);
+  const backendResponse = resolveResponseLanguage(
+    backend.response_language,
+    backend.language,
+  );
+  return {
+    language: hasStoredLanguage() ? readStoredLanguage() : backendLanguage,
+    response_language: hasStoredResponseLanguage()
+      ? readStoredResponseLanguage()
+      : backendResponse,
+  };
+}
+
 export function writeStoredLanguage(language: AppLanguage): void {
   if (typeof window === "undefined") return;
   try {

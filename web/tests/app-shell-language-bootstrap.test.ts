@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   LANGUAGE_STORAGE_KEY,
+  RESPONSE_LANGUAGE_STORAGE_KEY,
   hasStoredLanguage,
+  hasStoredResponseLanguage,
   readStoredLanguage,
+  readStoredResponseLanguage,
+  resolveUiLanguagesFromStore,
 } from "../context/app-shell-storage";
 
 /** Minimal localStorage stand-in — the helpers only need get/set. */
@@ -55,6 +59,30 @@ test("an unusable value still counts as a choice and normalizes to English", () 
   withLocalStorage({ [LANGUAGE_STORAGE_KEY]: "de" }, () => {
     assert.equal(hasStoredLanguage(), true);
     assert.equal(readStoredLanguage(), "en");
+  });
+});
+
+test("a stored response language is distinct from the interface language", () => {
+  withLocalStorage({ [RESPONSE_LANGUAGE_STORAGE_KEY]: "fr" }, () => {
+    assert.equal(hasStoredResponseLanguage(), true);
+    assert.equal(readStoredResponseLanguage(), "fr");
+  });
+
+  withLocalStorage({}, () => {
+    assert.equal(hasStoredResponseLanguage(), false);
+    assert.equal(readStoredResponseLanguage(), "en");
+  });
+});
+
+test("settings adopt a stored model language over a new account's English default", () => {
+  withLocalStorage({ [RESPONSE_LANGUAGE_STORAGE_KEY]: "fr" }, () => {
+    assert.deepEqual(
+      resolveUiLanguagesFromStore({
+        language: "en",
+        response_language: "en",
+      }),
+      { language: "en", response_language: "fr" },
+    );
   });
 });
 
