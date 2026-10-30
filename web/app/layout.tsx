@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Lora } from "next/font/google";
 import "./globals.css";
+import "@/features/ui-layout/classic/classic.css";
+import "@/features/ui-layout/modern/modern.css";
 import ThemeScript from "@/components/ThemeScript";
 import ToastViewport from "@/components/common/ToastViewport";
 import MotionProvider from "@/components/common/MotionProvider";
@@ -23,6 +25,8 @@ const fontSerif = Lora({
   variable: "--font-serif",
 });
 
+export const viewport: Viewport = { interactiveWidget: "resizes-content" };
+
 export const metadata: Metadata = {
   title: "Encore",
   applicationName: "Encore",
@@ -30,10 +34,10 @@ export const metadata: Metadata = {
     "Encore is your always-on AI companion between your one-to-one lessons with your private teacher. Continue your teacher’s practice with personalized exercises, instant feedback, and support so you arrive better prepared every time.",
   icons: {
     icon: [
-      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/brand/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/brand/favicon-32x32.png", sizes: "32x32", type: "image/png" },
     ],
-    apple: "/apple-touch-icon.png",
+    apple: "/brand/apple-touch-icon.png",
   },
 };
 

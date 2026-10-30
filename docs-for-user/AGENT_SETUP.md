@@ -14,6 +14,8 @@ waiting:
 
 - Installation folder and any existing DeepTutor checkout.
 - Full Web app or CLI-only; default to the full app for the README setup prompt.
+- Target version or branch. This guide describes current `dev`, including the
+  1.7.0 modular layout; use matching documentation for an older stable release.
 - LLM provider, exact model ID, and any custom/local endpoint.
 - Credential source: an existing environment variable, a private local file
   the user identifies, or provider login. Do not ask for keys in chat.
@@ -27,15 +29,16 @@ used for learning materials.
 
 ## 2. Clone and install
 
-For a new full-app source installation (macOS/Linux example):
+For a new full-app installation of current `dev` (macOS/Linux example):
 
 ```bash
-git clone https://github.com/HKUDS/DeepTutor.git
+git clone --branch dev https://github.com/HKUDS/DeepTutor.git
 cd DeepTutor
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e .
+python -m pip install -r requirements/full.txt
+python -m pip install -e . --no-deps
 cd web
 npm ci --legacy-peer-deps
 cd ..
@@ -47,12 +50,36 @@ Windows, use a supported `py -3.X` and `.venv\Scripts\Activate.ps1`. If shell
 state does not persist between tool calls, invoke the environment's Python
 and `deeptutor` by absolute path and pass environment variables to each process.
 
-For CLI-only, replace the editable install with
-`python -m pip install -e ./packaging/deeptutor-cli` and skip Node/npm. CLI-only
-is currently installed from source. A packaged full app can use
-`python -m pip install deeptutor` without cloning; it includes Web assets. Check
-that installed version's `--help`: the non-interactive commands below are
-available in the checkout containing this guide and releases that include it.
+For CLI use from source, keep the Python installation above and skip Node/npm.
+A source tree exposes all checked-in modules, so it still needs their Python
+dependencies. In the 1.7.0 package layout, `deeptutor` provides the minimal CLI;
+`deeptutor-cli` is a compatibility alias for the same core. Add feature modules
+as needed; this is not the layout of the published 1.6.15 packages.
+
+The 1.7.0 package layout uses `python -m pip install "deeptutor[full]"`
+for the complete Web app. Bare `deeptutor` contains core chat, CLI and SDK;
+it does not contain the server or Web assets. For development builds,
+use the source flow above or the local wheels described in
+[Modules](../docs-for-dev/MODULES.md).
+
+When upgrading from 1.6.15, stop DeepTutor, back up the existing runtime home,
+and keep using the same `DEEPTUTOR_HOME`. To install 1.7.0, run
+`python -m pip install --upgrade "deeptutor[full]==1.7.0"`, then
+`python -m pip check` and `deeptutor module list` before restarting.
+If the legacy `deeptutor-cli` package is installed, uninstall it **before**
+installing the new packages: `python -m pip uninstall deeptutor-cli`. Its old
+wheel owns shared Python files, and a one-command upgrade can remove the newly
+installed core. This does not remove runtime-home data. You can then add
+`deeptutor-cli==1.7.0` to the installation command for the new metadata-only
+compatibility alias. For CLI-only migration, install `deeptutor-cli==1.7.0`
+after removing the old CLI, and add any feature modules you need.
+
+In 1.7.0, upgrading bare `deeptutor` selects only core; use `[full]` to retain
+the full-app feature set. Do not reset settings or change the runtime-home
+directory during this upgrade. For an existing checkout, inspect its branch,
+commit and local edits before updating; do not silently switch branches or
+replace the environment to match this example.
+
 
 ## 3. Initialize without prompts
 
@@ -168,11 +195,21 @@ is not automatically reused. Login does not select a model.
 ## 5. Verify and start
 
 ```bash
+python -m pip check
+deeptutor module list
 deeptutor doctor --format json
 deeptutor doctor --online --format json
 ```
 
-The first checks local readiness; the second makes a small real model request
+`pip check` checks dependency consistency. Inspect `module list` for the modules
+needed by the user: installed, enabled, and ready are separate states. The Web
+app needs server and web; RAG needs knowledge and parsing; optional capabilities
+need their owning modules. Core-only intentionally omits these modules. Source
+checkouts use `module enable/disable`; wheel installs also support
+`module install/uninstall`. Stop DeepTutor before changes, and use
+`--wheelhouse /path/to/wheels` for unpublished modules. See [Modules](../docs-for-dev/MODULES.md).
+
+`doctor` checks local readiness; `doctor --online` makes a small real model request
 and may incur provider usage. Inspect exit status and required failures. Fix
 actionable failures and rerun affected checks. Saved settings alone are not
 proof of readiness. The LLM probe does not verify optional embedding: when RAG
@@ -189,8 +226,14 @@ Read the actual launcher URLs, verify backend `/health/ready`, and confirm the
 frontend responds. Defaults are backend `http://127.0.0.1:8001` and frontend
 `http://127.0.0.1:3782`; use the reported ports if different. Inspect launcher
 logs on failure. Choose free ports through `config apply` instead of stopping
-unrelated processes. For CLI-only, skip Web startup; a short
-`deeptutor run chat` with `--format json` can verify turn execution if needed.
+unrelated processes. For CLI-only, skip Web startup and verify turn execution:
+
+```bash
+deeptutor run chat "Reply with a short greeting." --format json
+```
+
+This also uses the configured model. Check for a successful response and turn
+completion, not merely a zero exit code or the first streamed event.
 
 Finish with the checkout/environment, runtime home, provider/model without
 credentials, passed checks, Web URL or CLI invocation, and any remaining user

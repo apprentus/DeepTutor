@@ -45,6 +45,7 @@ import {
   isNavActive,
   navVisibleUnderPolicy,
 } from "@/components/sidebar/nav-entries";
+import { useModules, moduleRouteAvailable } from "@/hooks/useModules";
 import { useAuthStatus } from "@/hooks/useAuthStatus";
 import {
   isEncoreAdminOnlyNavHref,
@@ -122,14 +123,17 @@ export function SidebarNav({
     enabled,
     isAdmin,
   });
+  const { modules } = useModules();
   const moduleHrefs = useMemo(
     () =>
       MODULE_NAV_HREFS.filter(
         (href) =>
           (showAdminNav || !isEncoreAdminOnlyNavHref(href)) &&
+          modules !== null &&
+          moduleRouteAvailable(href, modules) &&
           navVisibleUnderPolicy(href, learningPolicy?.allowedSurfaces ?? null),
       ),
-    [learningPolicy, showAdminNav],
+    [learningPolicy, modules, showAdminNav],
   );
   const resolved = useMemo(
     () => resolveNavLayout(moduleHrefs, layout, DEFAULT_COLLAPSED_NAV),
@@ -550,6 +554,7 @@ export function SidebarHome({
   const pathname = usePathname();
   const { has } = useCapabilityAccess();
   const { learningPolicy } = useAuthStatus();
+  const { modules } = useModules();
   const entry = NAV_BY_HREF.get("/chat")!;
   if (
     learningPolicy &&
