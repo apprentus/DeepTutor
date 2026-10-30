@@ -1,8 +1,12 @@
+import CalendarRuntime from "@/features/calendar/components/CalendarRuntime";
 import UtilitySidebar from "@/components/sidebar/UtilitySidebar";
 import AppShell from "@/components/layout/AppShell";
 import { AdminOnlyRouteGuard } from "@/components/access/AdminOnlyRouteGuard";
+import { LayoutPageBar } from "@/features/ui-layout/slots";
 import { CapabilityAccessProvider } from "@/components/access/CapabilityAccessContext";
 import CapabilityGate from "@/components/access/CapabilityGate";
+import { WorkspaceRuntimeBoundary } from "@/components/workspaces/WorkspaceRuntimeBoundary";
+import { Suspense } from "react";
 
 export default function UtilityLayout({
   children,
@@ -11,11 +15,18 @@ export default function UtilityLayout({
 }>) {
   return (
     <CapabilityAccessProvider>
-      <AppShell sidebar={<UtilitySidebar />}>
-        <AdminOnlyRouteGuard>
-          <CapabilityGate>{children}</CapabilityGate>
-        </AdminOnlyRouteGuard>
-      </AppShell>
+      {/* Utility pages read the workspace's own stores too; a switch remounts them. */}
+      <Suspense>
+        <WorkspaceRuntimeBoundary>
+          <CalendarRuntime>
+          <AppShell sidebar={<UtilitySidebar />} pageBar={<LayoutPageBar />}>
+            <AdminOnlyRouteGuard>
+              <CapabilityGate>{children}</CapabilityGate>
+            </AdminOnlyRouteGuard>
+          </AppShell>
+        </CalendarRuntime>
+        </WorkspaceRuntimeBoundary>
+      </Suspense>
     </CapabilityAccessProvider>
   );
 }
