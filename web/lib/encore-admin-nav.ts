@@ -14,8 +14,11 @@ export const ENCORE_ADMIN_ONLY_NAV = [
  */
 const ENCORE_DIRECT_URL_PATHS = ["/memory", "/knowledge"] as const;
 
-/** Personal settings any signed-in user may open. */
-export const ENCORE_USER_SETTINGS_HREF = "/settings/appearance";
+/** Personal settings pages any signed-in user may open. */
+export const ENCORE_USER_SETTINGS_KEYS = ["general", "appearance"] as const;
+
+/** Where blocked settings routes bounce to. */
+export const ENCORE_USER_SETTINGS_HREF = "/settings/general";
 
 export type EncoreAdminOnlyHref = (typeof ENCORE_ADMIN_ONLY_NAV)[number];
 
@@ -24,7 +27,9 @@ export function isEncoreAdminOnlyNavHref(href: string): boolean {
 }
 
 export function isEncoreUserSettingsPath(pathname: string): boolean {
-  return pathname === ENCORE_USER_SETTINGS_HREF;
+  return (ENCORE_USER_SETTINGS_KEYS as readonly string[]).some(
+    (key) => pathname === `/settings/${key}`,
+  );
 }
 
 export function isEncoreAdminOnlyPath(pathname: string): boolean {

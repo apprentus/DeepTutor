@@ -16,13 +16,22 @@ import {
   visibleSettingsPages,
 } from '@/features/settings/navigation/settings-pages'
 
-export default function SettingsNav({ onNavigate }: { onNavigate?: () => void }) {
+export default function SettingsNav({
+  onNavigate,
+  allowedKeys,
+}: {
+  onNavigate?: () => void
+  /** When set, only these pages are listed (restricted accounts). */
+  allowedKeys?: readonly string[]
+}) {
   const { t, i18n } = useTranslation()
   const zh = i18n.language?.toLowerCase().startsWith('zh')
   const tr = (label: Lang) => (zh ? label.zh : label.en)
   const pathname = usePathname()
   const access = useSettingsAccess()
-  const pages = visibleSettingsPages(access)
+  const pages = visibleSettingsPages(access).filter(
+    page => !allowedKeys || allowedKeys.includes(page.key)
+  )
   const [query, setQuery] = useState('')
   const needle = query.trim().toLocaleLowerCase()
   const currentKey = pathname.split('/')[2] || 'general'

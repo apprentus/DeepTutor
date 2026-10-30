@@ -13,7 +13,7 @@ import { SETTINGS_RETURN_KEY } from './SettingsReturnTracker'
 import Modal from '@/components/common/Modal'
 import { useSettings } from '@/features/settings/store/SettingsStore'
 import { useAuthStatus } from '@/hooks/useAuthStatus'
-import { showEncoreAdminNav } from '@/lib/encore-admin-nav'
+import { ENCORE_USER_SETTINGS_KEYS, showEncoreAdminNav } from '@/lib/encore-admin-nav'
 
 export default function SettingsMain({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
@@ -29,6 +29,7 @@ export default function SettingsMain({ children }: { children: React.ReactNode }
   const section = pathname.split('/')[2] || 'general'
   const { enabled, isAdmin, loading } = useAuthStatus()
   const showSettingsNav = showEncoreAdminNav({ loading, enabled, isAdmin })
+  const restrictedKeys = showSettingsNav ? undefined : ENCORE_USER_SETTINGS_KEYS
 
   useEffect(() => {
     setActiveSection(section)
@@ -64,24 +65,22 @@ export default function SettingsMain({ children }: { children: React.ReactNode }
     <div className="fixed inset-0 flex h-dvh overflow-hidden bg-[var(--background)]" data-settings-shell>
       <aside className="hidden w-[248px] shrink-0 flex-col border-r border-border/60 bg-[color-mix(in_srgb,var(--muted)_25%,var(--background))] md:flex">
         <div className="px-2.5 pb-1.5 pt-4">{returnButton}</div>
-        {showSettingsNav ? <SettingsNav /> : null}
+        <SettingsNav allowedKeys={restrictedKeys} />
       </aside>
       <main
         className="flex min-w-0 flex-1 flex-col overflow-hidden"
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-border/50 px-3 md:hidden">
           {returnButton}
-          {showSettingsNav ? (
-            <button
-              type="button"
-              aria-label={t('Settings sections')}
-              aria-expanded={mobileOpen}
-              onClick={() => setMobileOpen(true)}
-              className="rounded-md p-2 hover:bg-accent"
-            >
-              <Menu size={20} />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-label={t('Settings sections')}
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen(true)}
+            className="rounded-md p-2 hover:bg-accent"
+          >
+            <Menu size={20} />
+          </button>
         </div>
         <div
           ref={scroller}
@@ -106,7 +105,7 @@ export default function SettingsMain({ children }: { children: React.ReactNode }
         width="sm"
       >
         <div className="flex h-[70dvh] flex-col pt-3">
-          <SettingsNav onNavigate={() => setMobileOpen(false)} />
+          <SettingsNav onNavigate={() => setMobileOpen(false)} allowedKeys={restrictedKeys} />
         </div>
       </Modal>
       <Modal

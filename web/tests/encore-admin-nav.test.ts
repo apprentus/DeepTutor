@@ -17,9 +17,11 @@ test("encore admin nav: Settings stays in the sidebar for everyone", () => {
   assert.ok(!(ENCORE_ADMIN_ONLY_NAV as readonly string[]).includes("/settings"));
 });
 
-test("encore admin nav: non-admins may open Appearance only", () => {
+test("encore admin nav: non-admins may open General and Appearance only", () => {
   assert.equal(isEncoreUserSettingsPath("/settings/appearance"), true);
   assert.equal(isEncoreAdminOnlyPath("/settings/appearance"), false);
+  assert.equal(isEncoreUserSettingsPath("/settings/general"), true);
+  assert.equal(isEncoreAdminOnlyPath("/settings/general"), false);
 
   assert.equal(isEncoreUserSettingsPath("/settings"), false);
   assert.equal(isEncoreAdminOnlyPath("/settings"), true);
@@ -27,7 +29,7 @@ test("encore admin nav: non-admins may open Appearance only", () => {
   assert.equal(isEncoreAdminOnlyPath("/settings/about"), true);
 });
 
-test("encore admin nav: blocked settings routes bounce to Appearance", () => {
+test("encore admin nav: blocked settings routes bounce to General", () => {
   assert.equal(encoreBlockedRedirect("/settings"), ENCORE_USER_SETTINGS_HREF);
   assert.equal(
     encoreBlockedRedirect("/settings/network"),
@@ -42,13 +44,12 @@ test("encore admin nav: other consoles stay admin-only", () => {
   assert.equal(isEncoreAdminOnlyPath("/home"), false);
 });
 
-test("encore settings shell: hides the full settings navigator for non-admins", () => {
+test("encore settings shell: restricts the navigator for non-admins", () => {
   const source = readFileSync(
     path.join(process.cwd(), "components", "settings", "SettingsMain.tsx"),
     "utf8",
   );
   assert.match(source, /showEncoreAdminNav/);
-  assert.match(source, /showSettingsNav \?/);
-  assert.match(source, /<SettingsNav \/>/);
-  assert.match(source, /<SettingsNavCompact \/>/);
+  assert.match(source, /ENCORE_USER_SETTINGS_KEYS/);
+  assert.match(source, /allowedKeys=\{restrictedKeys\}/);
 });
