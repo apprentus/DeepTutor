@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import time
 from typing import TYPE_CHECKING, Any
 import uuid
@@ -16,6 +17,10 @@ from deeptutor.services.session.protocol import (
     SUBMISSION_PREVIOUS_TURN_FIELD,
     SUBMISSION_REPLAY_FIELD,
     SUBMISSION_USER_FIELD,
+)
+from deeptutor.services.session.thread_attribution import (
+    BACKFILL_ATTEMPTED_KEY,
+    parent_message_role,
 )
 from deeptutor.services.session.workspace_preferences import (
     WORKSPACE_MODE_MASTERY,
@@ -45,6 +50,8 @@ if TYPE_CHECKING:
     from deeptutor.runtime.coordination import RuntimeCoordinator
     from deeptutor.services.session.protocol import SessionStoreProtocol
 
+logger = logging.getLogger(__name__)
+
 
 # Request snapshots use the browser's display keys. Only these saved turn
 # inputs are restored by Resend; runtime bookkeeping and message identity are
@@ -65,6 +72,7 @@ _REPLAY_SNAPSHOT_FIELDS: dict[str, str] = {
     "skills": "skills",
     "mcp": "mcp",
     "persona": "persona",
+    "create_target": "createTarget",
     "llm_selection": "llmSelection",
     "workspace_mode": "workspaceMode",
     "workspace_id": "workspaceId",
@@ -86,13 +94,35 @@ _REPLAY_SNAPSHOT_FIELDS: dict[str, str] = {
 
 
 def _tutor_thread_preferences(context: dict[str, Any]) -> dict[str, Any]:
+    preferences: dict[str, Any] = {}
     if context.get("selected_text"):
-        return {
-            "tutor_scope": "selection",
-            "tutor_selected_text": str(context["selected_text"])[:2000],
-            "tutor_source_message_id": context.get("source_message_id"),
-        }
-    return {"tutor_scope": "conversation"}
+        preferences.update(
+            {
+                "tutor_scope": "selection",
+                "tutor_selected_text": str(context["selected_text"])[:2000],
+            }
+        )
+    else:
+        preferences["tutor_scope"] = "conversation"
+    # Which message this thread is filed under, restated by the client on every
+    # turn. The key's presence is authoritative, like ``create_target``: a
+    # value moves the thread, an explicit null clears it, and omitting the key
+    # (what older clients do) leaves the stored anchor untouched.
+    if "quoted_message_id" in context:
+        quoted_message_id = context.get("quoted_message_id")
+        if quoted_message_id is None:
+            preferences["tutor_source_message_id"] = ""
+            # A deliberate detach must survive the legacy-thread backfill.
+            preferences[BACKFILL_ATTEMPTED_KEY] = True
+        else:
+            preferences["tutor_source_message_id"] = quoted_message_id
+    elif context.get("selected_text"):
+        # ``source_message_id`` is the branch tip the transcript is read up to;
+        # for a legacy selection thread it is also the selected message.
+        source_message_id = context.get("source_message_id")
+        if source_message_id is not None:
+            preferences["tutor_source_message_id"] = source_message_id
+    return preferences
 
 
 class TurnRequestPreparer:
@@ -152,6 +182,7 @@ class TurnRequestPreparer:
         payload: dict[str, Any],
         *,
         replace_assistant_message_id: int | str | None = None,
+        persist_llm_selection_only: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         await self._ensure_accepting_turns()
         from deeptutor.services.workspace.context import get_workspace_scope
@@ -652,6 +683,36 @@ class TurnRequestPreparer:
             if parent_session_id == session["id"]:
                 raise RuntimeError("A selection tutor session cannot parent itself")
             if parent_session_id:
+                quoted_message_id = selection_tutor_context.get("quoted_message_id")
+                if quoted_message_id is not None:
+                    source_role = await parent_message_role(
+                        self.store, parent_session_id, quoted_message_id
+                    )
+                    if source_role is None:
+                        # A deleted or foreign message must not become an
+                        # invisible anchor; treat it as an explicit detach.
+                        logger.warning(
+                            "side chat quoted message %s is not in parent %s",
+                            quoted_message_id,
+                            parent_session_id,
+                        )
+                        selection_tutor_context["quoted_message_id"] = None
+                        selection_tutor_context.pop("source_message_role", None)
+                    else:
+                        selection_tutor_context["source_message_role"] = source_role
+                elif (
+                    "quoted_message_id" not in selection_tutor_context
+                    and selection_tutor_context.get("selected_text")
+                ):
+                    # Legacy selection clients persisted the branch tip as an
+                    # anchor; keep it only when it is really a parent message.
+                    legacy_source = selection_tutor_context.get("source_message_id")
+                    if (
+                        legacy_source is not None
+                        and await parent_message_role(self.store, parent_session_id, legacy_source)
+                        is None
+                    ):
+                        selection_tutor_context.pop("source_message_id", None)
                 from deeptutor.services.session.organization import (
                     validate_parent_assignment,
                 )
@@ -691,6 +752,11 @@ class TurnRequestPreparer:
         if persona_explicit:
             # Persist explicit set AND explicit clear ("" = back to Default).
             preference_update["persona"] = persona_pref
+        if "create_target" in payload:
+            # Same explicit-set-and-explicit-clear shape as persona: the web
+            # client sends create_target on every turn, so its presence alone
+            # (including an empty/null clear) is what makes it durable.
+            preference_update["create_target"] = payload.get("create_target") or ""
         if skills_explicit:
             preference_update["skills"] = selected_skills
         if mcp_explicit:
@@ -739,6 +805,15 @@ class TurnRequestPreparer:
         try:
             if not payload.get("preserve_session_preferences"):
                 await self.store.update_session_preferences(session["id"], preference_update)
+            elif persist_llm_selection_only and preference_update.get("llm_selection"):
+                # A recovered turn keeps the failed turn's context, but the model
+                # it ran with is the one the user selected now. Persist just
+                # that, so the choice survives a reload, and leave the failed
+                # turn's other preferences where they are (#2105).
+                await self.store.update_session_preferences(
+                    session["id"],
+                    {"llm_selection": preference_update["llm_selection"]},
+                )
             submission_kwargs = {}
             if (
                 payload.get("client_submission_id")
@@ -1100,6 +1175,17 @@ class TurnRequestPreparer:
                 if "mastery_session_mode" in overrides
                 else preferences.get("mastery_session_mode")
             ),
+            # The create-mode chip is a durable session preference like
+            # persona, but — unlike persona — ordinary chat turns always send
+            # it explicitly, so an un-set key here would read as "leave it to
+            # start_turn's own fallback" and silently drop it. Restore it
+            # explicitly so a plain Regenerate keeps authoring the same draft.
+            "create_target": (
+                overrides.get("create_target")
+                if "create_target" in overrides
+                else snapshot.get("createTarget") or preferences.get("create_target")
+            )
+            or None,
             # Recovered from the original turn's snapshot so the regenerate runs
             # against the same document. An explicit override wins (the reader
             # may have moved on), and the viewport is deliberately not restored —
@@ -1168,8 +1254,13 @@ class TurnRequestPreparer:
             if last_message is not None and last_message.get("role") == "assistant"
             else None
         )
+        # A Resend runs with the model the user has selected now, so that one
+        # choice is written back to the conversation. The failed turn's other
+        # preferences are not (#2105).
         if replace_assistant_message_id is None:
-            return await self.start_turn(payload)
+            return await self.start_turn(payload, persist_llm_selection_only=replay_snapshot)
         return await self.start_turn(
-            payload, replace_assistant_message_id=replace_assistant_message_id
+            payload,
+            replace_assistant_message_id=replace_assistant_message_id,
+            persist_llm_selection_only=replay_snapshot,
         )

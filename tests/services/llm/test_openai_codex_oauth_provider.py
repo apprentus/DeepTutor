@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from typing import Any, AsyncIterator
 
 import httpcore
@@ -406,3 +407,44 @@ def test_openai_codex_binding_threads_session_id() -> None:
     from deeptutor.services.llm.capabilities import threads_session_id
 
     assert threads_session_id("openai_codex")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strict", [None, False, True])
+async def test_codex_preserves_optional_tool_parameters(monkeypatch, strict):
+    service = FakeCodexService()
+    captured = []
+
+    async def request(url, headers, body, **kwargs):
+        captured.append(body)
+        return "ok", [], "stop"
+
+    monkeypatch.setattr(module, "get_codex_oauth_service", lambda: service)
+    monkeypatch.setattr(module, "_request_codex", request)
+    function = {
+        "name": "mastery_quiz",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "resume_question_id": {"type": "string"},
+                "visual": {"type": "object", "properties": {"sources": {"type": "array"}}},
+            },
+            "required": ["question"],
+        },
+    }
+    if strict is not None:
+        function["strict"] = strict
+    tools = [{"type": "function", "function": function}]
+    before = deepcopy(tools)
+
+    result = await OpenAICodexProvider().chat(
+        [{"role": "user", "content": "Give me a text-only question."}], tools=tools
+    )
+
+    assert result.content == "ok"
+    outgoing = captured[0]["tools"][0]
+    assert outgoing["strict"] is (strict if strict is not None else False)
+    assert outgoing["parameters"]["required"] == ["question"]
+    assert outgoing["parameters"] == function["parameters"]
+    assert tools == before

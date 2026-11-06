@@ -74,6 +74,11 @@ class OpenAICodexProvider(LLMProvider):
             body["reasoning"] = {"effort": reasoning_effort}
         if tools:
             body["tools"] = convert_tools(tools)
+            # Preserve optional parameters instead of letting Responses normalize
+            # every field into a required strict-schema argument.
+            for tool in body["tools"]:
+                if tool.get("type") == "function":
+                    tool.setdefault("strict", False)
 
         service = get_codex_oauth_service()
         async with service.inference_guard():

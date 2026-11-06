@@ -105,6 +105,41 @@ class CalendarStore:
                 "revision": self._revision(db),
             }
 
+    def export(
+        self, calendar_id: str | None = None
+    ) -> tuple[list[CalendarEntry], list[CalendarEvent]]:
+        """Return calendar rows and events for an iCalendar export.
+
+        Args:
+            calendar_id: Restrict the dump to this calendar. Omit to include
+                every visible calendar. Unknown ids raise ``KeyError``.
+
+        Returns:
+            The selected calendars and their stored events, including series
+            overrides. Overlay layers are not persisted here.
+        """
+        with self.connect() as db:
+            db.execute("BEGIN")
+            calendars = [
+                CalendarEntry.model_validate_json(row[0])
+                for row in db.execute("SELECT payload FROM calendars")
+            ]
+            events = [
+                CalendarEvent.model_validate_json(row[0])
+                for row in db.execute("SELECT payload FROM events")
+            ]
+        if calendar_id is not None:
+            if not any(entry.id == calendar_id for entry in calendars):
+                raise KeyError(calendar_id)
+            calendars = [entry for entry in calendars if entry.id == calendar_id]
+        else:
+            calendars = [entry for entry in calendars if entry.visible]
+        wanted = {entry.id for entry in calendars}
+        events = [event for event in events if event.calendar_id in wanted]
+        calendars.sort(key=lambda entry: (entry.position, entry.id))
+        events.sort(key=lambda event: (event.start, event.id))
+        return calendars, events
+
     def create_calendar(self, payload: CreateCalendar):
         stamp = now()
         entry = CalendarEntry(
@@ -307,6 +342,7 @@ class CalendarStore:
                     ):
                         if master.all_day:
                             delta = parse_date(changes["start"]) - parse_date(key)
+                            day_delta = delta.days
                             duration = parse_date(changes.get("end", master.end)) - parse_date(
                                 changes["start"]
                             )
@@ -319,6 +355,8 @@ class CalendarStore:
                             target = parse_instant(changes["start"]).astimezone(tz)
                             origin = parse_instant(key).astimezone(tz)
                             delta = target.replace(tzinfo=None) - origin.replace(tzinfo=None)
+                            # timedelta.days floors negative sub-day shifts to -1.
+                            day_delta = (target.date() - origin.date()).days
                             duration = parse_instant(
                                 changes.get("end", master.end)
                             ) - parse_instant(changes["start"])
@@ -328,7 +366,7 @@ class CalendarStore:
                                 end=format_instant(start.astimezone(timezone.utc) + duration),
                             )
                         if "rrule" not in changes:
-                            changes["rrule"] = shift_weekdays(master.rrule, delta.days)
+                            changes["rrule"] = shift_weekdays(master.rrule, day_delta)
                     reset = any(k in changes for k in ("start", "all_day", "tzid", "rrule"))
                     if reset:
                         db.execute("DELETE FROM events WHERE series_id=?", (master.id,))

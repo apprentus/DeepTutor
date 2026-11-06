@@ -66,6 +66,9 @@
     },
     "setup": {
       "class_path": "deeptutor.capabilities.setup.capability:SetupCapability"
+    },
+    "creator": {
+      "class_path": "deeptutor.capabilities.creator.capability:CreatorCapability"
     }
   },
   "tools": {
@@ -172,6 +175,10 @@
     "run_setup_job": {
       "class_path": "deeptutor.capabilities.setup.tools:RunSetupJobTool",
       "order": 96
+    },
+    "propose_creation": {
+      "class_path": "deeptutor.capabilities.creator.tools:ProposeCreationTool",
+      "order": 102
     }
   },
   "routes": [],
@@ -196,6 +203,7 @@
     "aiosqlite>=0.19.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
+    "markdown-it-py>=3.0.0,<5.0.0",
     "prompt_toolkit>=3.0.36",
     "pyte>=0.8.1",
     "mcp>=1.26.0,<2.0.0",

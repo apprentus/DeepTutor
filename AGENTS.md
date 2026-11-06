@@ -143,6 +143,7 @@ setup, but still need the full Python dependencies. Follow
 | `deeptutor/app/`                           | `DeepTutorApp` SDK facade + durable application service |
 | `deeptutor_cli/main.py`                    | Typer CLI entry point                |
 | `deeptutor/api/routers/unified_ws.py`      | Unified WebSocket endpoint           |
+| `apps/desktop/`                            | Open DeepTutor desktop apps for MacOS and Windows (Electron shell + bundled core; per-target builds in `platforms/`) |
 
 ## Dependency Layers
 

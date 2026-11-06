@@ -210,6 +210,79 @@ async def judge_answers(config, items):
         ) from exc
 
 
+def _answer_body(question) -> str:
+    """The correct-answer text the learner had to produce, independent of label."""
+    if question.choice_map:
+        body = question.choice_map.get(question.expected_answer)
+        if body:
+            return body
+    return question.expected_answer
+
+
+def _same_stem(left: str, right: str) -> bool:
+    """Only layout-normalized equality is safe for automatic rejection.
+
+    Punctuation and case can change mathematical meaning; lexical similarity
+    and a matching answer are not evidence that two exercises are identical.
+    """
+    return bool(_comparable(left)) and _comparable(left) == _comparable(right)
+
+
+def _source_identity(question) -> str:
+    sources = question.source_evidence.get("sources") or []
+    return json.dumps(sources, sort_keys=True, ensure_ascii=False) if sources else ""
+
+
+def _prior_correct_questions(store, path_id: str) -> list:
+    """Leaves the learner already answered correctly on this path.
+
+    A source-verifiable item can be the only one that binds, so the tutor tends
+    to fall back on it instead of writing a new question. Reporting the ones
+    already proven correct lets :func:`bind_questions` refuse a restatement by
+    comparing the new stem and answer key against them.
+    """
+    try:
+        interactions = store.list_interactions(path_id)
+    except Exception:
+        return []
+    correct = []
+    for interaction in interactions:
+        result = interaction.result or {}
+        receipts = result.get("results")
+        if not isinstance(receipts, list):
+            receipts = [{"question_id": interaction.question.question_id, **result}]
+        by_id = {
+            receipt.get("question_id"): receipt for receipt in receipts if isinstance(receipt, dict)
+        }
+        for leaf in interaction.question.questions or [interaction.question]:
+            receipt = by_id.get(leaf.question_id)
+            if receipt is not None and receipt.get("is_correct") is True:
+                correct.append(leaf)
+    return correct
+
+
+def _refuse_restatement(question, prior_correct: list) -> None:
+    body = _comparable(_answer_body(question))
+    if not body:
+        return
+    source = _source_identity(question)
+    if not source:
+        return
+    for answered in prior_correct:
+        if answered.knowledge_point_id != question.knowledge_point_id:
+            continue
+        if _source_identity(answered) != source:
+            continue
+        if _comparable(_answer_body(answered)) != body:
+            continue
+        if _same_stem(question.prompt, answered.prompt):
+            raise AssessmentUnavailable(
+                "This question restates one the learner already answered correctly "
+                "for this objective and source; it is not fresh evidence. Write a different question, "
+                "or move on to another step."
+            )
+
+
 async def bind_question(store, progress, question, config=None):
     await bind_questions(store, progress, [question], config)
 
@@ -221,6 +294,7 @@ async def bind_questions(store, progress, questions, config=None):
     if not 1 <= len(questions) <= 4:
         raise AssessmentUnavailable("Bind one to four questions at a time.")
     items, located = [], []
+    prior_correct = None
     for question in questions:
         evidence = json.loads(
             json.dumps(progress.lesson_evidence.get(question.knowledge_point_id, {}))
@@ -231,6 +305,12 @@ async def bind_questions(store, progress, questions, config=None):
         question.source_evidence = evidence
         if not evidence:
             continue
+        # A source-grounded question that restates a correct answer is not fresh
+        # evidence; refuse it before spending the source check on it.
+        if prior_correct is None:
+            prior_correct = _prior_correct_questions(store, progress.book_id)
+        if progress.current_stage != "review":
+            _refuse_restatement(question, prior_correct)
         sources = [
             {
                 "index": i,

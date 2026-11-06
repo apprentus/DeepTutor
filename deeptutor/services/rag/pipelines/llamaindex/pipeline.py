@@ -34,6 +34,21 @@ from .embedding_adapter import (
 )
 from .errors import search_error_result
 
+
+def _notify_indexed_files(documents: list[Any], callback: Callable[..., Any] | None) -> None:
+    """Tell the caller which source files actually landed in the index."""
+    if callback is None:
+        return
+    indexed_paths: set[str] = set()
+    for document in documents:
+        metadata = getattr(document, "metadata", None)
+        if isinstance(metadata, dict):
+            path = metadata.get("file_path")
+            if isinstance(path, str) and path:
+                indexed_paths.add(path)
+    callback(sorted(indexed_paths))
+
+
 DEFAULT_KB_BASE_DIR = str(get_runtime_data_root() / "knowledge_bases")
 
 # How long an indexing step may run without reporting any progress before it
@@ -281,17 +296,7 @@ class LlamaIndexPipeline:
             if resumed:
                 self.logger.info(f"Resumed interrupted LlamaIndex candidate at {storage_dir}")
             await self._publish_verified(kb_dir, storage_dir, signature, documents)
-
-            indexed_file_callback = kwargs.get("indexed_file_callback")
-            if indexed_file_callback is not None:
-                indexed_paths: set[str] = set()
-                for document in documents:
-                    metadata = getattr(document, "metadata", None)
-                    if isinstance(metadata, dict):
-                        path = metadata.get("file_path")
-                        if isinstance(path, str) and path:
-                            indexed_paths.add(path)
-                indexed_file_callback(sorted(indexed_paths))
+            _notify_indexed_files(documents, kwargs.get("indexed_file_callback"))
 
             self.logger.info(f"KB '{kb_name}' initialized successfully with LlamaIndex")
             return True
@@ -319,7 +324,11 @@ class LlamaIndexPipeline:
         # on the existing embedding/retrieval path.
         from .exercise_lookup import lookup_exercises, requested_exercises
 
-        if requested_exercises(query)[0]:
+        document_keys = kwargs.get("document_keys")
+        if document_keys is not None and not document_keys:
+            return self._nodes_to_result(query, [])
+        exact_request = bool(requested_exercises(query)[0])
+        if exact_request and document_keys is None:
             kb_dir = resolve_kb_dir(self.kb_base_dir, kb_name)
             try:
                 exact = await asyncio.to_thread(
@@ -353,6 +362,24 @@ class LlamaIndexPipeline:
                 "provider": "llamaindex",
                 "needs_reindex": True,
             }
+
+        if exact_request and document_keys is not None:
+            try:
+                exact = await asyncio.to_thread(
+                    lookup_exercises,
+                    query,
+                    kb_dir,
+                    Path(self.kb_base_dir).parent / "parse_cache",
+                    document_keys=document_keys,
+                    storage_dir=storage_dir,
+                )
+            except Exception:
+                self.logger.exception(
+                    "Scoped exercise evidence unavailable; using normal retrieval"
+                )
+            else:
+                if exact is not None and exact.get("sources"):
+                    return exact
 
         embedding_mismatch_warning = self._embedding_mismatch_warning(kb_name)
 
@@ -505,6 +532,7 @@ class LlamaIndexPipeline:
                 self.logger.info(f"Created new index with {num_added} documents")
 
             await self._publish_verified(kb_dir, plan.storage_dir, signature, documents)
+            _notify_indexed_files(documents, kwargs.get("indexed_file_callback"))
             self.logger.info(f"Successfully added documents to KB '{kb_name}'")
             return True
 

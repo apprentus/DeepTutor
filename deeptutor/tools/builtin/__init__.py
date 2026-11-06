@@ -263,9 +263,22 @@ class RAGTool(_PromptHintsMixin, BaseTool):
                         sources = await presenter(
                             result.metadata["presentation_sources"], presentation
                         )
+                        rows = [{**row, "presentation": presentation} for row in sources]
                         result.public_result = {
                             "content": "Selected source view presented.",
-                            "sources": [{**row, "presentation": presentation} for row in sources],
+                            "sources": rows,
+                            # Rides on the tool_result event so the web client can
+                            # show each page at the call that presented it.
+                            "metadata": {
+                                "presented_sources": [
+                                    {
+                                        "title": row.get("title"),
+                                        "preview_url": row.get("preview_url"),
+                                        "presentation": presentation,
+                                    }
+                                    for row in rows
+                                ]
+                            },
                         }
                         result.content += "\nThe selected source view was publicly presented."
                     except (ValueError, MasteryInteractionError) as exc:

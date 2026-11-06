@@ -385,13 +385,14 @@ export function makeFileLinkRemarkPlugin(
 export function unlinkedGeneratedFiles(
   content: string,
   files: MessageAttachment[],
+  { imagesOnly = false }: { imagesOnly?: boolean } = {},
 ): MessageAttachment[] {
   if (!files.length) return [];
   const tree = fromMarkdown(content) as unknown as Record<string, unknown>;
   makeFileLinkRemarkPlugin(files)?.()(tree);
   const linked = new Set<string>();
   const visit = (node: Record<string, unknown>): void => {
-    if (node.type === "link" || node.type === "image") {
+    if (node.type === "image" || (!imagesOnly && node.type === "link")) {
       const name = parseAttachmentHref(node.url as string | undefined);
       if (name) {
         const matching = files.filter(

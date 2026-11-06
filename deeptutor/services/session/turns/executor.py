@@ -14,6 +14,7 @@ from deeptutor.services.session.artifact_attachments import (
     artifact_attachments,
     fill_preview_text,
 )
+from deeptutor.services.session.model_history import SOURCE_MESSAGE_METADATA_KEY
 from deeptutor.services.session.provider_response_state import (
     normalize_provider_response_state,
 )
@@ -1026,6 +1027,11 @@ class TurnExecutor:
                     # model where the user is actually looking.
                     "note_document_id": payload.get("note_document_id"),
                     "note_generation": payload.get("note_generation") or {},
+                    # What this conversation is authoring, for the creator
+                    # loop extension (deeptutor.capabilities.creator). Empty
+                    # string, like every other turn-kind flag here, means
+                    # "not active" rather than absent.
+                    "create_target": payload.get("create_target") or "",
                     "reading_material_id": _reading_material_id(payload.get("reading_material_id")),
                     "reading_material_revision": _reading_material_revision(
                         payload.get("reading_material_revision")
@@ -1109,6 +1115,19 @@ class TurnExecutor:
                     {"model_turn": context.runtime.model_turn} if context.runtime.model_turn else {}
                 ),
             } or None
+            if side_chat_context:
+                # Persist the identity beside the prompt so a future backfill
+                # does not have to parse localized instructions. The preference
+                # on the thread remains the canonical anchor.
+                source_message_id = side_chat_context.get("quoted_message_id")
+                if source_message_id is None and side_chat_context.get("selected_text"):
+                    source_message_id = side_chat_context.get("source_message_id")
+                if source_message_id is not None:
+                    assistant_provider_metadata = assistant_provider_metadata or {}
+                    assistant_provider_metadata[SOURCE_MESSAGE_METADATA_KEY] = {
+                        "message_id": source_message_id,
+                        "role": str(side_chat_context.get("source_message_role") or ""),
+                    }
 
             # A mastery turn may have changed which path it is on
             # (``mastery_switch`` / ``mastery_leave``). The conversation's

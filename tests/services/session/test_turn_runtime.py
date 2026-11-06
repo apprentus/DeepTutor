@@ -79,6 +79,16 @@ class TestAssemblePersistedAnswer:
         assert _repair_chinese_emphasis_for_persistence("**“你好”**啊", "zh-CN") == "**“你好”** 啊"
         assert _repair_chinese_emphasis_for_persistence("中文*，重点*", "en") == "中文*，重点*"
 
+    def test_repairs_japanese_and_korean_emphasis_boundaries(self) -> None:
+        # Both set a bracket flush against the next word, exactly as Chinese does.
+        assert (
+            _repair_chinese_emphasis_for_persistence(
+                "つまり、**関連付けは「どの表を見るか」**です。", "ja"
+            )
+            == "つまり、**関連付けは「どの表を見るか」** です。"
+        )
+        assert _repair_chinese_emphasis_for_persistence("**“단어”**는", "ko") == "**“단어”** 는"
+
     def test_does_not_change_inner_whitespace_or_literal_stars(self) -> None:
         inputs = [
             "* 重点 *",
@@ -97,6 +107,19 @@ class TestAssemblePersistedAnswer:
     def test_preserves_code_math_and_nested_emphasis(self) -> None:
         content = "`中文*，重点*`\n$中文*，重点*$\n中文***，重点***内容"
         assert _repair_chinese_emphasis_for_persistence(content, "zh") == content
+
+    def test_dollar_signs_in_code_and_literal_placeholders_survive(self) -> None:
+        inputs = [
+            "PHP 对象：`$b = $a`；PHP 数组：`$b = $a`。",
+            "```php\n$b = $a;\n```\n价格 $5，`$c = $d` 与 $x^2$",
+            "原文 \x00CJK_PROTECTED_0\x00 与 `代码`",
+        ]
+        for content in inputs:
+            assert _repair_chinese_emphasis_for_persistence(content, "zh") == content
+        assert (
+            _repair_chinese_emphasis_for_persistence("`$b = $a`，中文*，重点*内容`$c`", "zh")
+            == "`$b = $a`，中文 *，重点* 内容`$c`"
+        )
 
     def test_continuation_preserves_exact_visible_boundary(self) -> None:
         segments = [
@@ -579,3 +602,27 @@ def test_the_answer_so_far_is_only_built_for_events_that_anchor_layout() -> None
     _stamp_content_offset(tool, answer)
     assert built == [1]
     assert tool["metadata"]["assistant_content_offset"] == len("Some answer text.")
+
+
+@pytest.mark.asyncio
+async def test_side_chat_resolves_the_quoted_messages_role() -> None:
+    class FakeStore:
+        async def get_messages_for_context(self, session_id, leaf_message_id):
+            assert session_id == "main-1"
+            return [
+                {"id": 2, "role": "user", "content": "What does fork() return?"},
+                {"id": 9, "role": "assistant", "content": "The child sees 0."},
+            ]
+
+    resolved = await _resolve_selection_tutor_context(
+        FakeStore(),
+        {
+            "scope": "conversation",
+            "selected_text": "",
+            "parent_session_id": "main-1",
+            "source_message_id": 9,
+            "quoted_message_id": 2,
+        },
+    )
+
+    assert resolved["source_message_role"] == "user"

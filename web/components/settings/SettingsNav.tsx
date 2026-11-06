@@ -26,7 +26,7 @@ export default function SettingsNav({
 }) {
   const { t, i18n } = useTranslation()
   const zh = i18n.language?.toLowerCase().startsWith('zh')
-  const tr = (label: Lang) => (zh ? label.zh : label.en)
+  const tr = (label: Lang) => (zh ? label.zh : t(label.en))
   const pathname = usePathname()
   const access = useSettingsAccess()
   const pages = visibleSettingsPages(access).filter(
@@ -42,6 +42,9 @@ export default function SettingsNav({
       page.label.zh,
       page.blurb.en,
       page.blurb.zh,
+      tr(page.label),
+      tr(page.blurb),
+      tr(settingsPageLabel(page.key, page.label)),
       page.key,
       page.key === 'connections' ? 'API Key token base url 密钥 凭据 地址 供应商' : '',
       ...Object.values(settingsPageLabel(page.key, page.label)),

@@ -1263,6 +1263,10 @@ class MasteryQuizTool(BaseTool):
             return _no_built_path_result("mastery_quiz")
         pending_action = kwargs.get("pending_action", "retain")
         resume_id = kwargs.get("resume_question_id")
+        # Model adapters may include blank optional strings in tool arguments.
+        # A blank ID is absent; a real ID still requires the resume action.
+        if isinstance(resume_id, str) and not resume_id.strip():
+            resume_id = None
         if pending_action == "resume":
             contract_fields = {
                 "knowledge_point_id",
@@ -1304,6 +1308,9 @@ class MasteryQuizTool(BaseTool):
                     success=False,
                 )
         raw_questions = kwargs.get("questions")
+        # An empty optional group carries no contracts; use the single question.
+        if isinstance(raw_questions, list) and not raw_questions:
+            raw_questions = None
         if pending_action == "resume":
             pending, echoed_options = None, False
         elif raw_questions is None:
@@ -1650,7 +1657,7 @@ class MasteryGradeTool(BaseTool):
         path_id = _resolve_path_id(kwargs)
         if not path_id:
             return _no_path_result()
-        from deeptutor.learning.scheduler import SpacedRepetitionScheduler
+        from deeptutor.learning.review_strategy import scheduler_for_path
 
         answer = str(
             kwargs.get("_learner_message")
@@ -1658,7 +1665,8 @@ class MasteryGradeTool(BaseTool):
             else kwargs.get("answer") or ""
         )
         service = _new_service()
-        scheduler = SpacedRepetitionScheduler()
+        # Scheduling follows the path's bound review strategy (#1908).
+        scheduler = scheduler_for_path(service.store, path_id)
         submitted_question_id = str(kwargs.get("question_id") or "").strip()
         interaction = (
             service.store.get_interaction(path_id, submitted_question_id)
@@ -1985,7 +1993,6 @@ class MasteryAssessTool(BaseTool):
         path_id = _resolve_path_id(kwargs)
         if not path_id:
             return _no_path_result()
-        from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 
         kp_id = str(kwargs.get("knowledge_point_id") or "").strip()
         if not kp_id:
@@ -2013,6 +2020,7 @@ class MasteryAssessTool(BaseTool):
                 ),
                 success=False,
             )
+        from deeptutor.learning.review_strategy import scheduler_for_path
         from deeptutor.learning.service import MasteryInteractionError
 
         try:
@@ -2020,7 +2028,7 @@ class MasteryAssessTool(BaseTool):
                 path_id,
                 kp_id,
                 learner_answer=learner_answer,
-                scheduler=SpacedRepetitionScheduler(),
+                scheduler=scheduler_for_path(service.store, path_id),
                 session_id=_resolve_session_id(kwargs),
                 turn_id=_resolve_turn_id(kwargs),
             )
@@ -2152,7 +2160,7 @@ class MasteryRepairQuestionTool(BaseTool):
         path_id = _resolve_path_id(kwargs)
         if not path_id:
             return _no_path_result()
-        from deeptutor.learning.scheduler import SpacedRepetitionScheduler
+        from deeptutor.learning.review_strategy import scheduler_for_path
         from deeptutor.learning.service import MasteryInteractionError
 
         service = _new_service()
@@ -2165,7 +2173,7 @@ class MasteryRepairQuestionTool(BaseTool):
                 action=str(kwargs.get("action") or ""),
                 expected_answer=str(kwargs.get("expected_answer") or ""),
                 reason=str(kwargs.get("reason") or ""),
-                scheduler=SpacedRepetitionScheduler(),
+                scheduler=scheduler_for_path(service.store, path_id),
                 session_id=_resolve_session_id(kwargs),
                 turn_id=_resolve_turn_id(kwargs),
             )

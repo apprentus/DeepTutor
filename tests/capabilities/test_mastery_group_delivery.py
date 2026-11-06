@@ -224,3 +224,80 @@ async def test_markdown_discussion_preserves_existing_card(service, monkeypatch)
     assert result.metadata["mastery_question"]["question_id"] == "parent"
     assert capability.finish_instruction(context, "The questions are on your card.") is None
     assert service.store.load("path").quiz_attempts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resume_id", [None, "", " \t"])
+@pytest.mark.parametrize("questions", [None, []])
+async def test_blank_optional_arguments_allow_single_question(
+    service, monkeypatch, resume_id, questions
+):
+    from deeptutor.capabilities.mastery import tools
+
+    monkeypatch.setattr(tools, "_new_service", lambda: service)
+    progress = service.store.load("path").model_copy(deep=True)
+    progress.book_id = "new-path"
+    progress.version = 0
+    progress.pending_question = None
+    service.save(progress)
+    ended = []
+    result = await tools.MasteryQuizTool().execute(
+        _mastery_path_id="new-path",
+        knowledge_point_id="one",
+        question="What is one plus one?",
+        expected_answer="2",
+        question_type="open",
+        options=[],
+        questions=questions,
+        pending_action="retain",
+        resume_question_id=resume_id,
+        replace_question_id="",
+        replacement_request="",
+        _end_turn_on_card=lambda: ended.append(True),
+    )
+    assert result.success, result.content
+    question_id = result.metadata["mastery_question"]["question_id"]
+    assert service.store.get_active_interaction("new-path").interaction_id == question_id
+    assert service.store.load("new-path").quiz_attempts == []
+    assert ended == [True]
+    assert "expected_answer" not in json.dumps(result.metadata)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resume_id", ["parent", False, 0, [], {}])
+async def test_nonblank_or_malformed_resume_id_still_requires_resume(
+    service, monkeypatch, resume_id
+):
+    from deeptutor.capabilities.mastery import tools
+
+    monkeypatch.setattr(tools, "_new_service", lambda: service)
+    before = service.store.load("path").model_dump()
+    interaction = service.store.get_active_interaction("path").model_dump()
+    result = await tools.MasteryQuizTool().execute(
+        _mastery_path_id="path", pending_action="retain", resume_question_id=resume_id
+    )
+    assert not result.success
+    assert "requires pending_action='resume'" in result.content
+    assert service.store.load("path").model_dump() == before
+    assert service.store.get_active_interaction("path").model_dump() == interaction
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("questions", [[{}], [{}, {}, {}, {}, {}], {}])
+async def test_nonempty_malformed_groups_are_not_treated_as_single_questions(
+    service, monkeypatch, questions
+):
+    from deeptutor.capabilities.mastery import tools
+
+    monkeypatch.setattr(tools, "_new_service", lambda: service)
+    before = service.store.load("path").model_dump()
+    result = await tools.MasteryQuizTool().execute(
+        _mastery_path_id="path",
+        knowledge_point_id="one",
+        question="What is one plus one?",
+        expected_answer="2",
+        questions=questions,
+    )
+    assert not result.success
+    assert "two to four" in result.content
+    assert service.store.load("path").model_dump() == before
