@@ -5,6 +5,8 @@ import { useStagedSettings } from "@/features/settings/store/useStagedSettings";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { normalizeLanguage } from "@/i18n/languages";
+import { formatDate } from "@/lib/datetime";
 
 import {
   SettingRow,
@@ -322,9 +324,9 @@ const APPROVALS: { value: string; label: Lang }[] = [
 ];
 
 export function SubagentSettingsEditor({ kind }: { kind: string }) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const zh = i18n.language?.toLowerCase().startsWith("zh");
-  const tr = useCallback((l: Lang) => (zh ? l.zh : l.en), [zh]);
+  const tr = useCallback((l: Lang) => (zh ? l.zh : t(l.en)), [zh, t]);
 
   const [options, setOptions] = useState<SubagentBackendOptions | null>(null);
   const [liveConfig, setLiveConfig] = useState<SubagentBackendConfig>({
@@ -530,9 +532,8 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
                       en: "No model catalog is assumed. Enter a model supported by your Grok CLI; sync only detects the CLI again.",
                     })
                   : options.synced_at
-                    ? tr({
-                        zh: `上次同步：${formatTs(options.synced_at, zh)}`,
-                        en: `Last synced: ${formatTs(options.synced_at, zh)}`,
+                    ? t("Last synced: {{when}}", {
+                        when: formatTs(options.synced_at, i18n.language),
                       })
                     : isRemote
                       ? tr({
@@ -961,10 +962,10 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
   );
 }
 
-function formatTs(value: string, zh: boolean): string {
+function formatTs(value: string, language: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString(zh ? "zh-CN" : "en-US", {
+  return formatDate(parsed, normalizeLanguage(language), {
     dateStyle: "medium",
     timeStyle: "short",
   });
